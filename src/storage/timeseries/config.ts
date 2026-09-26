@@ -122,11 +122,39 @@ export const PRICE_HISTORY_SERIES: SeriesDescriptor<PriceHistoryPayload> = {
   }),
 }
 
+// ── data-quality ────────────────────────────────────────────────────────────
+
+/** Structural shape of a persisted per-pair quality snapshot (#644). */
+export interface DataQualityPayload {
+  assetPair: string
+  timestamp: number
+  score: number
+  factors: { freshness: number; confidence: number; deviation: number; sourceCoverage: number }
+  /** Sources that contributed to the scored window, for triage of flagged pairs. */
+  sources: string[]
+}
+
+/**
+ * Per-pair data-quality history (#644), one series per pair (`data-quality:BTC/USD`).
+ * Rolled up as an average so long-range trends stay cheap.
+ */
+export const DATA_QUALITY_SERIES: SeriesDescriptor<DataQualityPayload> = {
+  id: 'data-quality',
+  retention: { raw: 7 * DAY_MS, hourly: 90 * DAY_MS, daily: 365 * DAY_MS },
+  rollup: { rawToHourly: 'avg', hourlyToDaily: 'avg' },
+  toObservation: (entry) => ({
+    t: entry.timestamp,
+    v: entry.score,
+    meta: { assetPair: entry.assetPair, factors: entry.factors, sources: entry.sources },
+  }),
+}
+
 /** Every descriptor the app registers at boot. */
 export const SERIES_DESCRIPTORS: ReadonlyArray<SeriesDescriptor<never>> = [
   ALERT_EVENTS_SERIES,
   EXPORT_RUNS_SERIES,
   PRICE_HISTORY_SERIES,
+  DATA_QUALITY_SERIES,
 ] as ReadonlyArray<SeriesDescriptor<never>>
 
 /** Convenience ids for call sites. */
@@ -134,4 +162,5 @@ export const SERIES_IDS = {
   alertEvents: ALERT_EVENTS_SERIES.id,
   exportRuns: EXPORT_RUNS_SERIES.id,
   priceHistory: (pair: string) => `${PRICE_HISTORY_SERIES.id}:${pair}`,
+  dataQuality: (pair: string) => `${DATA_QUALITY_SERIES.id}:${pair}`,
 } as const
