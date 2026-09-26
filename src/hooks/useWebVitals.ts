@@ -4,6 +4,7 @@ import type { Metric } from 'web-vitals'
 import { config } from '../config'
 import { recordPerfMark } from '../utils/performanceMonitor'
 import { trackEvent } from './useAnalytics'
+import { recordFieldVital } from '../utils/fieldVitals'
 
 interface WebVitalReport {
   name: string
@@ -122,6 +123,9 @@ export function useWebVitals(): void {
     const reportMetric = (metric: Metric) => {
       // Place a performance mark so the metric appears in the DevTools timeline
       recordPerfMark(`web_vital:${metric.name}:${metric.rating}`)
+
+      // Field dataset (#643): consent-gated inside recordFieldVital.
+      recordFieldVital(metric, { pathname: window.location.pathname, width: window.innerWidth, connection: getConnectionType() })
 
       const task = () => {
         sendToAnalytics({
