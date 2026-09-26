@@ -1,3 +1,4 @@
+import { recordRuleVersion, removeRuleHistory } from '../services/alertRuleHistory'
 import { useState, useCallback, useEffect, useRef, createContext, useContext, ReactNode } from 'react'
 import type {
   Alert,
@@ -584,6 +585,7 @@ export function AlertsProvider({ children }: { children: ReactNode }) {
         percentageBaselineTimestamp: null,
         escalationState: null,
       }
+      recordRuleVersion(newAlert, newAlert.createdAt)
       setAlerts((prev) => [...prev, newAlert])
       return newAlert
     },
@@ -591,10 +593,20 @@ export function AlertsProvider({ children }: { children: ReactNode }) {
   )
 
   const updateAlert = useCallback((id: string, updates: Partial<Omit<Alert, 'id' | 'createdAt'>>) => {
-    setAlerts((prev) => prev.map((a) => (a.id === id ? { ...a, ...updates } : a)))
+    setAlerts((prev) =>
+      prev.map((a) => {
+        if (a.id !== id) return a
+        const next = { ...a, ...updates }
+        // #645 – append a rule version (idempotent: runtime-only changes and
+        // StrictMode double-invocation add nothing).
+        recordRuleVersion(next)
+        return next
+      }),
+    )
   }, [])
 
   const removeAlert = useCallback((id: string) => {
+    removeRuleHistory(id)
     setAlerts((prev) => prev.filter((a) => a.id !== id))
   }, [])
 
