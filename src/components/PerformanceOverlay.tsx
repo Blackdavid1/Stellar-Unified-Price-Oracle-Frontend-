@@ -16,6 +16,7 @@
 import { memo, useState, useEffect, useCallback } from 'react'
 import { subscribePerformance, type PerformanceSnapshot } from '../utils/performanceMonitor'
 import { subscribeRenderInfo, getRenderCounts, type RenderInfo } from '../hooks/useRenderTracker'
+import { RpcHealthPanel } from './RpcHealthPanel'
 import { getWorkerPoolDiagnostics, type WorkerPoolDiagnostics } from '../workers/workerPool'
 import { subscribeMemoryProfiler, type MemoryProfilerSnapshot } from '../utils/memoryProfiler'
 
@@ -243,6 +244,7 @@ export const PerformanceOverlay = memo(function PerformanceOverlay() {
         </div>
       )}
 
+      <RpcHealthPanel />
       <div className="mt-2 text-slate-600">Alt+Shift+P to toggle</div>
     </aside>
   )
