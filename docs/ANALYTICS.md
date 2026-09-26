@@ -23,3 +23,15 @@ No pair-level or user-identifying data is ever collected.
 - Convergence: `utils/analytics.ts`, the field Web Vitals store (#722) and developer events
   (#720) have their own gates. They could route through `telemetry/track` and share
   `getConsent()` once merged; this layer deliberately does not import them.
+
+## KPIs (`src/telemetry/kpi.ts`)
+
+Pure functions over the local buffer, unit-tested in `kpi.test.ts`:
+
+- **Activation** = installs with a `dashboard_loaded` (`success: true`) / all installs seen.
+- **Feature adoption** = distinct installs with `feature_used` per feature / all installs.
+- **Weekly retention** = per first-seen-week cohort, fraction of installs with any event in week N.
+- **Funnel** = installs that reached each step in order (`route_viewed` -> `dashboard_loaded` -> `feature_used`).
+
+The `/dev/kpi` route renders these. It is registered only in dev or when
+`VITE_ENABLE_KPI_INSIGHTS=true` at build time, so production bundles exclude it otherwise.

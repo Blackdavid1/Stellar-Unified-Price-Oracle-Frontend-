@@ -8,6 +8,13 @@ import { DashboardSkeleton } from './components/Skeletons/DashboardSkeleton'
 import { PriceDetailSkeleton } from './components/PriceDetailSkeleton'
 import { ApiDocsSkeleton } from './components/Skeletons/ApiDocsSkeleton'
 import { NotFoundSkeleton } from './components/Skeletons/NotFoundSkeleton'
+import { lazy } from 'react'
+// Developer-only; the ternary is statically replaced by Vite so the chunk is
+// dropped from production bundles unless VITE_ENABLE_KPI_INSIGHTS=true.
+const KpiInsights =
+  import.meta.env.DEV || import.meta.env.VITE_ENABLE_KPI_INSIGHTS === 'true'
+    ? lazy(() => import('./pages/KpiInsights'))
+    : null
 import { PriceProvider } from './context/PriceContext'
 import { CommandRegistryProvider } from './context/CommandRegistryContext'
 import { CommandPaletteProvider } from './context/CommandPaletteContext'
@@ -156,6 +163,16 @@ export function AppContent(): ReactElement {
                 </RouteSuspense>
               }
             />
+            {KpiInsights && (
+              <Route
+                path="/dev/kpi"
+                element={
+                  <RouteSuspense fallback={<DashboardSkeleton />}>
+                    <KpiInsights />
+                  </RouteSuspense>
+                }
+              />
+            )}
             <Route path="/auth/callback" element={<AuthCallback />} />
             <Route
               path="*"
