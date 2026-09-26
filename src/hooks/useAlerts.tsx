@@ -345,12 +345,12 @@ export function AlertsProvider({ children }: { children: ReactNode }) {
 
         // #485 – compound evaluation against the alert's (possibly legacy-migrated) condition group
         const group = updatedAlert.conditionGroup ?? migrateLegacyAlertConditions(updatedAlert)
-        const state: PriceEvaluationState = { price: currentPrice, percentageChange: { [window]: pctChange } }
+        const state: PriceEvaluationState = { price: currentPrice, percentageChange: { [window]: pctChange }, nowMs: Date.now() }
         triggered = evaluateCompoundCondition(group, state)
       } else {
         // ── Absolute threshold evaluation, via the compound evaluator (#485) ─
         const group = updatedAlert.conditionGroup ?? migrateLegacyAlertConditions(updatedAlert)
-        const state: PriceEvaluationState = { price: currentPrice }
+        const state: PriceEvaluationState = { price: currentPrice, nowMs: Date.now() }
         triggered = evaluateCompoundCondition(group, state)
       }
 

@@ -8,10 +8,14 @@
  * evaluation loop.
  */
 import type { AlertCondition, AlertFormData, ConditionGroup, LogicOperator, PriceEvaluationState } from '../types'
+import { isScheduleActive } from './alertSchedule'
 import { isConditionGroup, nextConditionId, singleConditionGroup } from '../types'
 
 /** Evaluates a single leaf condition against the current price state. */
 export function evaluateCondition(condition: AlertCondition, state: PriceEvaluationState): boolean {
+  if (condition.field === 'schedule') {
+    return condition.schedule !== undefined && state.nowMs !== undefined && isScheduleActive(condition.schedule, state.nowMs)
+  }
   const actual =
     condition.field === 'price' ? state.price : (state.percentageChange?.[condition.window ?? '1hr'] ?? 0)
 
