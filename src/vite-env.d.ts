@@ -30,6 +30,10 @@ interface ImportMetaEnv {
   // ── Stellar network ─────────────────────────────────────────
   /** Stellar network for on-chain oracle reads and explorer links ("testnet" | "mainnet").  Optional. */
   readonly VITE_STELLAR_NETWORK: string
+  /** Comma-separated Soroban RPC URLs, preferred first.  Optional. */
+  readonly VITE_SOROBAN_RPC_URLS?: string
+  /** "true" enables the developer KPI insights route in production builds.  Optional. */
+  readonly VITE_ENABLE_KPI_INSIGHTS?: string
 }
 
 interface ImportMeta {
