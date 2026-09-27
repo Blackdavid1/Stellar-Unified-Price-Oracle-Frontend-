@@ -6,6 +6,7 @@ import {
   isFreighterAllowed,
   signTransactionWithFreighter,
 } from './freighterClient'
+import { assertWalletOnAppNetwork } from './networkGuard'
 import { fetchNativeBalance } from './horizon'
 import type { WalletContextValue, WalletErrorCode, WalletState } from './types'
 
@@ -92,9 +93,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       if (!state.address || !state.networkPassphrase) {
         throw new WalletError('not-connected', 'Connect a wallet before signing a transaction.')
       }
+      // Re-read the wallet's live network before EVERY signature (#632).
+      const passphrase = await assertWalletOnAppNetwork()
       return signTransactionWithFreighter(transactionXdr, {
         address: state.address,
-        networkPassphrase: state.networkPassphrase,
+        networkPassphrase: passphrase,
       })
     },
     [state.address, state.networkPassphrase],

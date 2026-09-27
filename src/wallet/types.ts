@@ -6,6 +6,7 @@ export type WalletErrorCode =
   | 'not-installed'
   | 'user-rejected'
   | 'not-connected'
+  | 'wrong-network'
   | 'unknown'
 
 export interface WalletState {

@@ -1,6 +1,7 @@
 import { fetchPriceProof } from '../api/rest'
 import type { PriceProof } from '../types'
 import { useSwr } from './useSwr'
+import { stampProofNetwork } from '../wallet/networkGuard'
 
 /** Return value of {@link usePriceProof}. */
 export interface UsePriceProofResult {
@@ -25,7 +26,7 @@ export interface UsePriceProofResult {
 export function usePriceProof(pair: string | null, timestamp?: number): UsePriceProofResult {
   const key = pair ? `proof:${pair}:${timestamp ?? 'latest'}` : ''
 
-  const { data, loading, error, refetch } = useSwr(key, () => fetchPriceProof(pair as string, timestamp), {
+  const { data, loading, error, refetch } = useSwr(key, async () => stampProofNetwork(await fetchPriceProof(pair as string, timestamp)), {
     staleTime: 5000,
     retryCount: 1,
     enabled: pair !== null,
