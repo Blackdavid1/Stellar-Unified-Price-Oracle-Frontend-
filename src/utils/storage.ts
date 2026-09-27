@@ -61,6 +61,8 @@ export const STORAGE_KEYS = {
   soundPreferences: 'sound-preferences',
   /** Recently-used UI language codes, newest first (#373). No PII. */
   recentLanguages: 'recent-languages',
+  /** Developer-selected Stellar network (#633): mainnet / testnet / futurenet. No PII. */
+  activeNetwork: 'active-network',
 } as const
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS]
