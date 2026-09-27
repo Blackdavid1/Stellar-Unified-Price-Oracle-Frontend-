@@ -15,7 +15,7 @@ describe('settlement store', () => {
     const store = new SettlementStore(undefined, () => NOW)
     const pool = new RpcProviderPool(['http://rpc-a'])
     expect(await ingestEvents(pool, src, store)).toBe(3)
-    expect(store.list('testnet', 'XLM/USD').map((r) => r.ledger)).toEqual([1002, 1001, 1000].sort((a, b) => b - a).reverse().reverse())
+    expect(store.list('testnet', 'XLM/USD').map((r) => r.ledger)).toEqual([1002, 1001, 1000])
   })
   it('dedupes and isolates networks', () => {
     const s = new SettlementStore(undefined, () => NOW)
