@@ -7,6 +7,8 @@ import {
   signTransactionWithFreighter,
 } from './freighterClient'
 import { assertWalletOnAppNetwork } from './networkGuard'
+import { TxReviewDialog } from './TxReviewDialog'
+import { reviewTransaction, TxReviewError, type ReviewOptions, type TxSummary } from './txReview'
 import { fetchNativeBalance } from './horizon'
 import type { WalletContextValue, WalletErrorCode, WalletState } from './types'
 
@@ -28,6 +30,7 @@ const WalletContext = createContext<WalletContextValue | null>(null)
 
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<WalletState>(INITIAL_STATE)
+  const [pendingReview, setPendingReview] = useState<{ summary: TxSummary; resolve: (ok: boolean) => void } | null>(null)
   // Avoids setting state after unmount if a connect/balance fetch is still in flight.
   const mountedRef = useRef(true)
   useEffect(() => {
@@ -89,12 +92,23 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }, [state.address, state.networkPassphrase, loadBalance])
 
   const signTransaction = useCallback(
-    async (transactionXdr: string): Promise<string> => {
+    async (transactionXdr: string, review?: ReviewOptions): Promise<string> => {
       if (!state.address || !state.networkPassphrase) {
         throw new WalletError('not-connected', 'Connect a wallet before signing a transaction.')
       }
       // Re-read the wallet's live network before EVERY signature (#632).
       const passphrase = await assertWalletOnAppNetwork()
+      // Every signature goes through decode + allow-list + fee + intent checks, then explicit user approval (#631).
+      let summary: TxSummary
+      try {
+        summary = reviewTransaction(transactionXdr, passphrase, review)
+      } catch (e) {
+        if (e instanceof TxReviewError) throw new WalletError('unknown', e.message)
+        throw e
+      }
+      const approved = await new Promise<boolean>((resolve) => setPendingReview({ summary, resolve }))
+      setPendingReview(null)
+      if (!approved) throw new WalletError('review-rejected', 'Signing cancelled at the review step.')
       return signTransactionWithFreighter(transactionXdr, {
         address: state.address,
         networkPassphrase: passphrase,
@@ -123,6 +137,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   return (
     <WalletContext.Provider value={{ ...state, connect, disconnect, refreshBalance, signTransaction }}>
       {children}
+      {pendingReview && (
+        <TxReviewDialog
+          summary={pendingReview.summary}
+          onApprove={() => pendingReview.resolve(true)}
+          onReject={() => pendingReview.resolve(false)}
+        />
+      )}
     </WalletContext.Provider>
   )
 }
