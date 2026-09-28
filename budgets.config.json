@@ -13,10 +13,17 @@
     "lazyRoutes": {
       "semantics": "Exact allowlist of dynamic route entries (manifest keys). A dynamic import for anything not listed fails CI, so `lazy()` can no longer be used to dodge the initial-load budget. `chunkLimitKb` budgets the route's own chunk; `subtreeLimitKb` budgets everything non-initial it pulls in (vendor chunks included)."
     },
+    "renderBudgets": {
+      "purpose": "Per-component render-count budgets enforced by the render profiling harness (scripts/check-render-budgets.mjs). Counts are measured with the production `useRenderTracker` hook so budgets track what production measures.",
+      "determinism": "The harness renders a fixed, seeded dataset (see `seed` and `dataset`) with a frozen clock and no network; runs are deterministic and must not depend on wall-clock time or randomness.",
+      "semantics": "Key = component name as reported by `useRenderTracker`. `maxRenders` is the maximum number of renders allowed for that component during a single harness pass. Exceeding it fails CI. `maxRenders` is an upper bound, not an exact count, so incidental render reductions never fail the gate.",
+      "regression": "A planted missing-`memo` regression (an unstable prop or removed memoization) increases the component's render count above `maxRenders` and fails the gate."
+    },
     "invariants": [
       "Coverage: every emitted JS/CSS file must be classified (initial, vendor, or claimed by a lazy route) — no orphan chunks.",
       "Initial-load boundary: initial download = entry + statically reachable vendor chunks only; the lazy-route set is closed under this config.",
-      "Vendor attribution: each vendor chunk is budgeted and its npm packages are verified against the allowlist."
+      "Vendor attribution: each vendor chunk is budgeted and its npm packages are verified against the allowlist.",
+      "Render budgets: every tracked component in the harness dataset has a checked-in `maxRenders` budget; an untracked component or a missing budget fails CI."
     ]
   },
   "compression": "brotli",
@@ -70,6 +77,20 @@
     "src/pages/PriceDetail.tsx": {
       "chunkLimitKb": 4,
       "subtreeLimitKb": 95
+    }
+  },
+  "renderBudgets": {
+    "seed": 677,
+    "dataset": {
+      "rows": 200,
+      "symbols": 25,
+      "ticksPerSymbol": 8
+    },
+    "components": {
+      "PriceList": { "maxRenders": 3 },
+      "PriceRow": { "maxRenders": 200 },
+      "PerformanceOverlay": { "maxRenders": 2 },
+      "RealtimeMonitor": { "maxRenders": 4 }
     }
   }
 }
