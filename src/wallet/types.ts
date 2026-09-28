@@ -1,3 +1,5 @@
+import type { ReviewOptions } from './txReview'
+
 /** Lifecycle of the wallet connection. */
 export type WalletStatus = 'disconnected' | 'connecting' | 'connected' | 'error'
 
@@ -6,6 +8,8 @@ export type WalletErrorCode =
   | 'not-installed'
   | 'user-rejected'
   | 'not-connected'
+  | 'wrong-network'
+  | 'review-rejected'
   | 'unknown'
 
 export interface WalletState {
@@ -29,5 +33,5 @@ export interface WalletContextValue extends WalletState {
   disconnect: () => void
   refreshBalance: () => Promise<void>
   /** Signs a transaction XDR with the connected wallet. Throws if not connected. */
-  signTransaction: (transactionXdr: string) => Promise<string>
+  signTransaction: (transactionXdr: string, review?: ReviewOptions) => Promise<string>
 }

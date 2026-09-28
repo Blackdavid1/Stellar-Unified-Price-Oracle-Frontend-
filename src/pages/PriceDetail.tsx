@@ -7,6 +7,7 @@ import { fetchPrice } from '../api/rest'
 import { PriceDetailSkeleton } from '../components/PriceDetailSkeleton'
 import { CsvImportZone } from '../components/CsvImportZone'
 import { OnChainComparisonPanel } from '../components/OnChainComparisonPanel'
+import { SettlementTimeline } from '../settlement/SettlementTimeline'
 import { BacktestTool } from '../components/BacktestTool'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import { VisibleSuspense } from '../components/VisibleSuspense'
@@ -355,6 +356,8 @@ export function PriceDetail() {
                   thresholdPercent={preferences.onChainDivergenceThresholdPercent}
                 />
               </div>
+
+              <SettlementTimeline pair={price.assetPair} aggregatePrice={price.price} />
 
               {/* Paginated History chart */}
               <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 mb-6">

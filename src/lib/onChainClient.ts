@@ -8,6 +8,7 @@
  * consistent across every on-chain surface in the app.
  */
 import { config } from '../config'
+import { getSelectedNetwork } from './networkRegistry'
 import { fetchOnChainPrice as fetchOnChainPriceFromApi } from '../api/rest'
 import type { OnChainPriceRecord } from '../types/onchain'
 import {
@@ -19,6 +20,8 @@ import {
 
 /** The network on-chain panels read from unless a caller overrides it. */
 export function getActiveNetwork(): OracleNetwork {
+  const selected = getSelectedNetwork()
+  if (selected) return selected
   return isOracleNetwork(config.oracleNetwork) ? config.oracleNetwork : 'testnet'
 }
 

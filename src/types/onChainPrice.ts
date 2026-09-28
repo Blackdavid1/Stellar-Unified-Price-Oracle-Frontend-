@@ -72,6 +72,8 @@ export interface PriceProof {
   transactionHash: string
   /** Which Stellar network this proof was published to. */
   network: 'testnet' | 'mainnet'
+  /** Network passphrase the proof was recorded against (#632); stamped client-side when absent. */
+  networkPassphrase?: string
 }
 
 /**
