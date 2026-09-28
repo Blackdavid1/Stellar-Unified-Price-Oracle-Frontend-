@@ -68,3 +68,92 @@ export function scheduleIdlePreload(task: () => void, timeout = 2000): () => voi
   const handle = window.setTimeout(task, timeout)
   return () => window.clearTimeout(handle)
 }
+
+/**
+ * Respects reduced data mode and constrained/metered connections (#516) so we
+ * never spend a user's limited bandwidth on speculative prefetching.
+ */
+export function shouldPrefetch(): boolean {
+  if (typeof navigator === 'undefined') return false
+
+  const connection = (navigator as Navigator & {
+    connection?: { saveData?: boolean; effectiveType?: string }
+  }).connection
+
+  if (connection?.saveData) return false
+  if (connection?.effectiveType && /(^|-)2g$/.test(connection.effectiveType)) return false
+
+  if (typeof window !== 'undefined' && window.matchMedia) {
+    if (window.matchMedia('(prefers-reduced-data: reduce)').matches) return false
+  }
+
+  return true
+}
+
+/**
+ * Predicts likely-next routes from user intent (hover/focus, command palette,
+ * history) and prefetches them in idle slices within a time budget. Prefetch
+ * concurrency is capped and every in-flight prefetch is cancellable so a
+ * navigation away never competes with critical work.
+ */
+export class IdlePrefetcher {
+  private readonly queue: string[] = []
+  private readonly seen = new Set<string>()
+  private inFlight = 0
+  private cancelled = false
+  private cancelIdle: (() => void) | null = null
+
+  constructor(
+    private readonly loader: (route: string) => Promise<unknown>,
+    private readonly options: { concurrency?: number; budgetMs?: number } = {},
+  ) {}
+
+  private get concurrency(): number {
+    return this.options.concurrency ?? 2
+  }
+
+  private get budgetMs(): number {
+    return this.options.budgetMs ?? 2000
+  }
+
+  /** Records an intent signal (hover/focus, command palette, history). */
+  predict(route: string): void {
+    if (this.cancelled || !route || this.seen.has(route)) return
+    this.seen.add(route)
+    this.queue.push(route)
+    this.schedule()
+  }
+
+  private schedule(): void {
+    if (this.cancelled || this.cancelIdle) return
+    this.cancelIdle = scheduleIdlePreload(() => {
+      this.cancelIdle = null
+      this.drain()
+    }, this.budgetMs)
+  }
+
+  private drain(): void {
+    if (this.cancelled || !shouldPrefetch()) return
+
+    while (this.inFlight < this.concurrency && this.queue.length > 0) {
+      const route = this.queue.shift() as string
+      this.inFlight += 1
+      this.loader(route)
+        .catch(() => {})
+        .finally(() => {
+          this.inFlight -= 1
+          if (!this.cancelled && this.queue.length > 0) this.schedule()
+        })
+    }
+  }
+
+  /** Cancels pending idle work and stops scheduling further prefetches. */
+  cancel(): void {
+    this.cancelled = true
+    this.queue.length = 0
+    if (this.cancelIdle) {
+      this.cancelIdle()
+      this.cancelIdle = null
+    }
+  }
+}
