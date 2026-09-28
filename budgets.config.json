@@ -13,10 +13,21 @@
     "lazyRoutes": {
       "semantics": "Exact allowlist of dynamic route entries (manifest keys). A dynamic import for anything not listed fails CI, so `lazy()` can no longer be used to dodge the initial-load budget. `chunkLimitKb` budgets the route's own chunk; `subtreeLimitKb` budgets everything non-initial it pulls in (vendor chunks included)."
     },
+    "interactionLatency": {
+      "semantics": "INP (Interaction to Next Paint) budget per key interaction, measured at p75 on a mid-range profile. `budgetMs` is the enforced ceiling; `regressionGateMs` is the CI gate — a scripted interaction whose p75 exceeds it fails the build. `fieldMetric` names the RUM metric reported from production so field data and CI enforce the same number.",
+      "profile": "mid-range",
+      "percentile": 75,
+      "interactions": {
+        "filterChange": "Changing a filter on the list view.",
+        "rowClick": "Clicking a row to open its detail.",
+        "alertCreate": "Creating an alert from the alert form."
+      }
+    },
     "invariants": [
       "Coverage: every emitted JS/CSS file must be classified (initial, vendor, or claimed by a lazy route) — no orphan chunks.",
       "Initial-load boundary: initial download = entry + statically reachable vendor chunks only; the lazy-route set is closed under this config.",
-      "Vendor attribution: each vendor chunk is budgeted and its npm packages are verified against the allowlist."
+      "Vendor attribution: each vendor chunk is budgeted and its npm packages are verified against the allowlist.",
+      "Interaction latency: every key interaction has an INP budget; CI fails when a scripted interaction regresses beyond its gate, and field RUM reports the same metric."
     ]
   },
   "compression": "brotli",
@@ -24,6 +35,26 @@
     "entryJsLimitKb": 12,
     "totalJsLimitKb": 78,
     "cssLimitKb": 6
+  },
+  "interactionLatency": {
+    "profile": "mid-range",
+    "percentile": 75,
+    "budgetMs": 200,
+    "fieldMetric": "inp",
+    "interactions": {
+      "filterChange": {
+        "budgetMs": 200,
+        "regressionGateMs": 200
+      },
+      "rowClick": {
+        "budgetMs": 200,
+        "regressionGateMs": 200
+      },
+      "alertCreate": {
+        "budgetMs": 200,
+        "regressionGateMs": 200
+      }
+    }
   },
   "vendorChunks": {
     "vendor-react": {
