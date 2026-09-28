@@ -23,11 +23,44 @@
         "alertCreate": "Creating an alert from the alert form."
       }
     },
+    "startup": {
+      "semantics": "Cold and warm starts are measured and budgeted separately. A cold start is a first visit with an empty cache; a warm start is a returning user whose cache was hydrated (IndexedDB + preload hints). `ttiMs` is Time to Interactive and `fmpMs` is First Meaningful Paint, both measured at p75 on a mid-range profile. `regressionGateMs` is the CI gate — a scripted cold/warm start whose p75 exceeds it fails the build. `fieldMetric` names the RUM metric reported from production so field data and CI enforce the same number.",
+      "profile": "mid-range",
+      "percentile": 75,
+      "cold": {
+        "ttiMs": 3500,
+        "fmpMs": 1800,
+        "regressionGateMs": 3500,
+        "fieldMetric": "startup_cold"
+      },
+      "warm": {
+        "ttiMs": 1200,
+        "fmpMs": 600,
+        "regressionGateMs": 1200,
+        "fieldMetric": "startup_warm"
+      },
+      "ratio": {
+        "semantics": "Field cold:warm ratio reported from production so we can see which start users actually get and whether warming is turning cold starts warm.",
+        "fieldMetric": "startup_cold_warm_ratio",
+        "targetRatio": 0.5
+      },
+      "cacheWarming": {
+        "semantics": "Strategy that turns more cold starts warm. `indexedDbHydration` rehydrates the persisted cache from IndexedDB before first paint; `preloadHints` emits resource hints for the entry and vendor chunks. Warmed data MUST be validated for staleness before display (see #516) — stale entries are discarded and the start is treated as cold rather than shown as fresh.",
+        "indexedDbHydration": true,
+        "preloadHints": true,
+        "stalenessValidation": {
+          "required": true,
+          "maxAgeMs": 300000,
+          "onStale": "discard-and-treat-as-cold"
+        }
+      }
+    },
     "invariants": [
       "Coverage: every emitted JS/CSS file must be classified (initial, vendor, or claimed by a lazy route) — no orphan chunks.",
       "Initial-load boundary: initial download = entry + statically reachable vendor chunks only; the lazy-route set is closed under this config.",
       "Vendor attribution: each vendor chunk is budgeted and its npm packages are verified against the allowlist.",
-      "Interaction latency: every key interaction has an INP budget; CI fails when a scripted interaction regresses beyond its gate, and field RUM reports the same metric."
+      "Interaction latency: every key interaction has an INP budget; CI fails when a scripted interaction regresses beyond its gate, and field RUM reports the same metric.",
+      "Startup: cold and warm starts are budgeted separately; warmed data is validated for staleness before display and the field cold:warm ratio is reported."
     ]
   },
   "compression": "brotli",
@@ -53,6 +86,35 @@
       "alertCreate": {
         "budgetMs": 200,
         "regressionGateMs": 200
+      }
+    }
+  },
+  "startup": {
+    "profile": "mid-range",
+    "percentile": 75,
+    "cold": {
+      "ttiMs": 3500,
+      "fmpMs": 1800,
+      "regressionGateMs": 3500,
+      "fieldMetric": "startup_cold"
+    },
+    "warm": {
+      "ttiMs": 1200,
+      "fmpMs": 600,
+      "regressionGateMs": 1200,
+      "fieldMetric": "startup_warm"
+    },
+    "ratio": {
+      "fieldMetric": "startup_cold_warm_ratio",
+      "targetRatio": 0.5
+    },
+    "cacheWarming": {
+      "indexedDbHydration": true,
+      "preloadHints": true,
+      "stalenessValidation": {
+        "required": true,
+        "maxAgeMs": 300000,
+        "onStale": "discard-and-treat-as-cold"
       }
     }
   },
