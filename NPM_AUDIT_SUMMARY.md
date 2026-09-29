@@ -9,6 +9,56 @@
 
 ---
 
+## Dependency Policy (Issue #688)
+
+This document is the source of truth for the dependency policy: SBOM generation, license allow-list, and the severity-based upgrade SLA. The automated vuln issue (#579) must enforce the SLA below.
+
+### 1. SBOM per release
+
+- An SBOM (CycloneDX, `sbom.cdx.json`) is generated on every release and attached to the release artifacts.
+- Generation runs in CI on tag push and uploads the SBOM alongside the release assets.
+- The SBOM is the authoritative inventory used to cross-check audit findings and license compliance.
+
+### 2. License allow-list (enforced in CI)
+
+Allowed licenses:
+
+- MIT
+- ISC
+- Apache-2.0
+- BSD-2-Clause
+- BSD-3-Clause
+- 0BSD
+- CC0-1.0
+- Unlicense
+
+Any dependency whose license is not on this list fails the build. License checks run against the SBOM so the same inventory drives both security and license enforcement.
+
+### 3. Severity → upgrade SLA
+
+| Severity | Fix within | Enforcement |
+|----------|-----------|-------------|
+| Critical | 7 days | Blocks release |
+| High | 14 days | Blocks release |
+| Moderate | 30 days | Tracked, non-blocking |
+| Low | 90 days | Tracked, non-blocking |
+
+The automated audit issue (#579) must include the SLA deadline for each finding and fail the check when a Critical/High finding is past its window without a recorded exception.
+
+### 4. Exceptions (owner + expiry)
+
+Exceptions follow the `sri-exceptions.json` conventions and must record:
+
+- `package` — affected dependency
+- `advisory` — advisory/CVE identifier
+- `owner` — accountable person or team
+- `expiry` — ISO-8601 date after which the exception is invalid
+- `reason` — justification
+
+An exception without an owner or expiry is invalid and does not suppress the SLA check. Expired exceptions are treated as active findings.
+
+---
+
 ## Quick Answer
 
 ✅ **You have 5 real vulnerabilities that should be fixed.**  

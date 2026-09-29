@@ -42,6 +42,34 @@ jobs:
           path: npm-audit.json
           retention-days: 90
 
+      # ── SBOM (CycloneDX) generated per run and attached as an artifact ───────
+      - name: Generate SBOM (CycloneDX)
+        run: npx --yes @cyclonedx/cyclonedx-npm --output-file sbom.cdx.json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ github.run_id }}
+          path: sbom.cdx.json
+          retention-days: 90
+
+      # ── License policy: fail the build on a disallowed license ───────────────
+      - name: Enforce license allow-list
+        run: |
+          # Allowed licenses (SPDX identifiers). Keep in sync with docs/DEPENDENCY_POLICY.md.
+          ALLOWED='MIT|ISC|Apache-2.0|BSD-2-Clause|BSD-3-Clause|0BSD|CC0-1.0|Unlicense|Python-2.0'
+          npx --yes license-checker --json > licenses.json 2>/dev/null || true
+          DISALLOWED=$(jq -r --arg allowed "$ALLOWED" \
+            'to_entries[] | select(.value.licenses | test($allowed) | not) | "\(.key)@\(.value.version): \(.value.licenses)"' \
+            licenses.json || true)
+          if [ -n "$DISALLOWED" ]; then
+            echo "### ❌ Disallowed licenses detected" >> "$GITHUB_STEP_SUMMARY"
+            echo "$DISALLOWED" >> "$GITHUB_STEP_SUMMARY"
+            echo "$DISALLOWED"
+            exit 1
+          fi
+          echo "### ✅ All dependency licenses are on the allow-list" >> "$GITHUB_STEP_SUMMARY"
+
       # ── Determine severity ───────────────────────────────────────────────────
       - name: Check for critical / high vulnerabilities
         id: check_severity
@@ -79,6 +107,14 @@ jobs:
             const low      = '${{ steps.check_severity.outputs.low }}'
             const date     = new Date().toISOString().split('T')[0]
 
+            // Severity → upgrade SLA (days). Keep in sync with docs/DEPENDENCY_POLICY.md.
+            const SLA_DAYS = { critical: 7, high: 30, moderate: 90, low: 180 }
+            const dueDate = (days) => {
+              const d = new Date()
+              d.setUTCDate(d.getUTCDate() + days)
+              return d.toISOString().split('T')[0]
+            }
+
             const title = `[Security] Dependency vulnerabilities found — ${date}`
             const body = [
               '## Dependency vulnerability report',
@@ -94,6 +130,15 @@ jobs:
               `| 🟡 Moderate | ${moderate} |`,
               `| 🔵 Low      | ${low} |`,
               '',
+              '### Upgrade SLA (severity → remediation window)',
+              '',
+              '| Severity | SLA | Remediate by |',
+              '|----------|-----|--------------|',
+              `| 🔴 Critical | ${SLA_DAYS.critical} days | ${dueDate(SLA_DAYS.critical)} |`,
+              `| 🟠 High     | ${SLA_DAYS.high} days | ${dueDate(SLA_DAYS.high)} |`,
+              `| 🟡 Moderate | ${SLA_DAYS.moderate} days | ${dueDate(SLA_DAYS.moderate)} |`,
+              `| 🔵 Low      | ${SLA_DAYS.low} days | ${dueDate(SLA_DAYS.low)} |`,
+              '',
               '### Next steps',
               '',
               '1. Download the `npm-audit-${{ github.run_id }}` artifact for the full JSON report.',
@@ -101,6 +146,12 @@ jobs:
               '3. Run `npm audit fix` for automatic patch-level fixes.',
               '4. For breaking-change upgrades, create a separate PR per package.',
               '5. Refer to [SECURITY.md](../blob/main/SECURITY.md) for SLA guidelines.',
+              '',
+              '### Exceptions',
+              '',
+              'If a finding cannot be remediated within its SLA, record an exception in',
+              '`sri-exceptions.json` with an `owner` and an `expires` date (ISO 8601).',
+              'Expired exceptions are treated as unresolved findings.',
               '',
               `_Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}_`,
             ].join('\n')
