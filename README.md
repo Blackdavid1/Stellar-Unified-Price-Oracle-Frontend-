@@ -303,3 +303,8 @@ Key architectural decisions are documented in [`docs/adr/`](docs/adr/). Start he
 ## License
 
 MIT
+
+## Handsoff notes
+
+<!-- handsoff-issue-660 -->
+- #660: [SDK] Deprecation policy and codemods for breaking changes
