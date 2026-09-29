@@ -29,6 +29,62 @@ jobs:
 
       - run: npm ci --ignore-scripts
 
+      # ── Third-party origin governance (#689) ────────────────────────────────
+      # Every external origin must be inventoried in the central allow-list
+      # (external-origins.json) with purpose, owner, and review date; every
+      # external asset must be pinned/hashed (SRI); and the CSP must match the
+      # allow-list exactly. See docs/THIRD_PARTY_ORIGINS.md for the review cadence.
+      - name: Enforce third-party origin allow-list
+        run: |
+          set -euo pipefail
+          REGISTRY=external-origins.json
+          if [ ! -f "$REGISTRY" ]; then
+            echo "### ❌ Missing $REGISTRY" >> "$GITHUB_STEP_SUMMARY"
+            echo "Every external origin must be inventoried in $REGISTRY." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          # 1. Registry integrity: each entry needs origin, purpose, owner, review date.
+          MISSING=$(jq -r '
+            .origins[]
+            | select(
+                (.origin // "") == ""
+                or (.purpose // "") == ""
+                or (.owner // "") == ""
+                or (.reviewed // "") == ""
+              )
+            | .origin // "<unnamed>"' "$REGISTRY")
+          if [ -n "$MISSING" ]; then
+            echo "### ❌ Registry entries missing origin/purpose/owner/reviewed" >> "$GITHUB_STEP_SUMMARY"
+            echo "$MISSING" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          # 2. Every external asset must be pinned/hashed (SRI).
+          UNPINNED=$(jq -r '.origins[] | select((.sri // false) != true) | .origin' "$REGISTRY")
+          if [ -n "$UNPINNED" ]; then
+            echo "### ❌ External origins without SRI/pinning" >> "$GITHUB_STEP_SUMMARY"
+            echo "$UNPINNED" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          # 3. Cross-check the CSP against the allow-list (both directions).
+          CSP_ORIGINS=$(grep -rhoE 'https?://[a-zA-Z0-9._-]+' src/ public/ index.html 2>/dev/null \
+            | sed -E 's#https?://##' | sort -u || true)
+          ALLOWED=$(jq -r '.origins[].origin' "$REGISTRY" | sed -E 's#https?://##' | sort -u)
+
+          IN_CODE_NOT_CSP=$(comm -23 <(echo "$CSP_ORIGINS") <(echo "$ALLOWED") || true)
+          IN_CSP_NOT_CODE=$(comm -13 <(echo "$CSP_ORIGINS") <(echo "$ALLOWED") || true)
+
+          if [ -n "$IN_CODE_NOT_CSP" ] || [ -n "$IN_CSP_NOT_CODE" ]; then
+            echo "### ❌ CSP / allow-list mismatch" >> "$GITHUB_STEP_SUMMARY"
+            [ -n "$IN_CODE_NOT_CSP" ] && echo "Origins in code but not allow-listed:" >> "$GITHUB_STEP_SUMMARY" && echo "$IN_CODE_NOT_CSP" >> "$GITHUB_STEP_SUMMARY"
+            [ -n "$IN_CSP_NOT_CODE" ] && echo "Origins allow-listed but not referenced:" >> "$GITHUB_STEP_SUMMARY" && echo "$IN_CSP_NOT_CODE" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          echo "### ✅ Third-party origins are inventoried, pinned, and CSP-aligned" >> "$GITHUB_STEP_SUMMARY"
+
       # ── npm audit (full JSON report) ─────────────────────────────────────────
       - name: Run npm audit (JSON)
         id: npm_audit
@@ -179,8 +235,8 @@ jobs:
               core.notice(`Updated existing issue #${alreadyOpen.number}`)
             } else {
               const created = await github.rest.issues.create({
-                owner:  context.repo.owner,
-                repo:   context.repo.repo,
+                owner: context.repo.owner,
+                repo:  context.repo.repo,
                 title,
                 body,
                 labels: ['security', 'automated'],

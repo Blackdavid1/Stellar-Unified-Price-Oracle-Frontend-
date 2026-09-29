@@ -28,10 +28,10 @@ An SBOM is generated for every release and attached to the release artifacts.
 
 - Format: [CycloneDX](https://cyclonedx.org/) JSON (`sbom.cdx.json`).
 - Generation: the release workflow runs the SBOM generator against the locked
-dependency tree and uploads the resulting file as a release asset alongside the
-build artifacts.
+  dependency tree and uploads the resulting file as a release asset alongside the
+  build artifacts.
 - The SBOM is produced from the committed lockfile so it reflects the exact
-dependency set that ships.
+  dependency set that ships.
 
 ### 2. License Policy
 
@@ -90,3 +90,66 @@ Each exception entry records:
 
 Exceptions without an owner or an expiry date are invalid and will not be
 honored by CI. Expired exceptions fail the build, forcing re-review.
+
+## Third-Party Origin Policy
+
+This policy governs every external origin (scripts, styles, fonts, images, and
+API endpoints) referenced by the application. It is enforced in CI and is the
+single source of truth for which external origins are approved.
+
+### 1. Central Origin Allow-List
+
+All external origins are inventoried in a central allow-list registry. Each
+entry records:
+
+- `origin` — the scheme and host (and port, when non-default) of the external
+  origin, e.g. `https://fonts.googleapis.com`.
+- `purpose` — why the origin is needed and what asset(s) it serves.
+- `owner` — the individual or team accountable for the origin.
+- `reviewed` — ISO-8601 date of the most recent review.
+- `nextReview` — ISO-8601 date by which the entry must be reviewed again.
+
+An origin that is not present in the registry is not approved. Adding a new
+external origin requires a registry entry with an owner and a review date before
+it can be merged.
+
+### 2. Pinning and Subresource Integrity (SRI)
+
+Every external asset must be pinned and integrity-checked:
+
+- Scripts and stylesheets loaded from an external origin must carry a
+  `integrity` attribute with a valid SRI hash and a `crossorigin` attribute.
+- Versioned asset URLs must be pinned to an exact version (no floating ranges
+  such as `latest` or unversioned paths).
+- Fonts and other subresources must be served from an allow-listed origin and
+  pinned to an exact version.
+
+Enforcement: CI scans the codebase for external asset references and fails the
+build when any external asset lacks a valid SRI hash or an exact version pin.
+
+### 3. CSP / Allow-List Cross-Check
+
+The Content Security Policy (see the CSP triage runbook) must match the origin
+allow-list exactly:
+
+- Every origin referenced in code must appear in the CSP directives
+  (`script-src`, `style-src`, `font-src`, `img-src`, `connect-src`, etc.).
+- Every origin present in the CSP must have a corresponding allow-list entry.
+
+Enforcement: CI cross-checks the CSP against the registry and fails the build on
+any mismatch in either direction — an origin in code but missing from the CSP, or
+an origin in the CSP but missing from the allow-list.
+
+### 4. Review Cadence
+
+The origin allow-list is reviewed on a schedule:
+
+- Each entry carries a `nextReview` date; entries are reviewed at least every
+  90 days.
+- The review confirms the origin is still required, its owner is current, and its
+  pin/SRI hashes are up to date.
+- Entries past their `nextReview` date are flagged and treated as release
+  blockers until re-reviewed or removed.
+
+Exceptions to this policy must be recorded with an owner and an expiry date,
+following the conventions established in `sri-exceptions.json`.

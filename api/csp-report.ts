@@ -19,8 +19,17 @@
  * - First-party violations are emitted with `firstParty: true` and a
  *   `gate: 'fail'` marker so the log sink / CI can fail the appropriate gate.
  * See docs/csp-triage-runbook.md for the review workflow.
+ *
+ * Third-party origin governance (issue #689):
+ * - Every external origin that appears in a violation is cross-checked against
+ *   the central allow-list (src/security/externalOrigins.ts). A blocked origin
+ *   that is NOT in the registry is flagged with `unregisteredOrigin: true` so
+ *   the log sink / CI can surface drift between code, CSP, and the allow-list.
+ * - Registered origins carry their owner + review date so triage can route the
+ *   report to the responsible party and confirm the entry is still in review.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { findExternalOrigin } from '../src/security/externalOrigins'
 
 type ViolationSource = 'extension' | 'injected-script' | 'first-party'
 
@@ -29,6 +38,11 @@ interface ClassifiedReport {
   firstParty: boolean
   gate: 'fail' | 'review'
   reason: string
+  origin?: string
+  originRegistered?: boolean
+  originOwner?: string
+  originReviewDue?: string
+  unregisteredOrigin?: boolean
 }
 
 // --- Rate limiting -------------------------------------------------------
@@ -88,6 +102,22 @@ function isDuplicate(key: string): boolean {
 const EXTENSION_SCHEMES = ['chrome-extension:', 'moz-extension:', 'safari-extension:', 'ms-browser-extension:']
 const INJECTED_HINTS = ['eval', 'data:', 'blob:', 'javascript:']
 
+/**
+ * Extract the origin (scheme://host) from a blocked/source URI so it can be
+ * matched against the central external-origin allow-list. Returns null for
+ * opaque schemes (data:, blob:, eval) that have no governable origin.
+ */
+function extractOrigin(uri: string): string | null {
+  if (!uri) return null
+  try {
+    const url = new URL(uri)
+    if (!url.protocol.startsWith('http')) return null
+    return url.origin
+  } catch {
+    return null
+  }
+}
+
 function classify(report: Record<string, unknown>): ClassifiedReport {
   const body = (report['csp-report'] || report.body || report) as Record<string, unknown>
   const blocked = String(body['blocked-uri'] || body.blockedURL || '')
@@ -103,6 +133,30 @@ function classify(report: Record<string, unknown>): ClassifiedReport {
   }
 
   return { source: 'first-party', firstParty: true, gate: 'fail', reason: 'first-party resource blocked by CSP' }
+}
+
+/**
+ * Cross-check a violation's origin against the central allow-list (#689).
+ * A blocked http(s) origin that is not registered is flagged so the log sink
+ * can detect drift between code, CSP, and the registry.
+ */
+function governOrigin(report: Record<string, unknown>): Partial<ClassifiedReport> {
+  const body = (report['csp-report'] || report.body || report) as Record<string, unknown>
+  const blocked = String(body['blocked-uri'] || body.blockedURL || '')
+  const source = String(body['source-file'] || body.sourceFile || '')
+  const origin = extractOrigin(blocked) || extractOrigin(source)
+  if (!origin) return {}
+
+  const entry = findExternalOrigin(origin)
+  if (!entry) {
+    return { origin, originRegistered: false, unregisteredOrigin: true }
+  }
+  return {
+    origin,
+    originRegistered: true,
+    originOwner: entry.owner,
+    originReviewDue: entry.reviewDate,
+  }
 }
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
@@ -132,11 +186,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       const dkey = dedupeKey(report)
       if (isDuplicate(dkey)) continue
       const classification = classify(report)
+      const governance = governOrigin(report)
       console.log(
         JSON.stringify({
           type: 'csp-violation',
           receivedAt: new Date().toISOString(),
           ...classification,
+          ...governance,
           report,
         }),
       )
