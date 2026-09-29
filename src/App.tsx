@@ -37,6 +37,8 @@ import { ApiVersionBanner } from './components/ApiVersionBanner'
 import { InstallPrompt } from './components/InstallPrompt'
 import { PwaUpdateBanner } from './components/PwaUpdateBanner'
 import { Webhooks } from './pages/Webhooks'
+import { Moderation } from './pages/Moderation'
+import { Transparency } from './pages/Transparency'
 import { DeveloperInsights } from './components/DeveloperInsights'
 import {
   LazyApiDocs,
@@ -148,6 +150,8 @@ export function AppContent(): ReactElement {
               }
             />
             <Route path="/webhooks" element={<Webhooks />} />
+            <Route path="/moderation" element={<Moderation />} />
+            <Route path="/transparency" element={<Transparency />} />
             <Route path="/developer-insights" element={<DeveloperInsights />} />
             <Route
               path="/security"

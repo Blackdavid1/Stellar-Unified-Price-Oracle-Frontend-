@@ -243,6 +243,14 @@ export function Layout({ children }: { children: ReactNode }): ReactElement {
         <NavLink to="/security" className="underline underline-offset-2 hover:text-cyan-500 dark:hover:text-cyan-400">
           {t('footer.securityLink')}
         </NavLink>
+        <span aria-hidden="true"> · </span>
+        <NavLink to="/transparency" className="underline underline-offset-2 hover:text-cyan-500 dark:hover:text-cyan-400">
+          Transparency
+        </NavLink>
+        <span aria-hidden="true"> · </span>
+        <NavLink to="/moderation" className="underline underline-offset-2 hover:text-cyan-500 dark:hover:text-cyan-400">
+          Moderation
+        </NavLink>
       </footer>
 
       {/* ── Mobile bottom navigation bar ──────────────────────────── */}

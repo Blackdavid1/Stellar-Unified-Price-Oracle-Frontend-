@@ -63,6 +63,12 @@ export const STORAGE_KEYS = {
   recentLanguages: 'recent-languages',
   /** Developer-selected Stellar network (#633): mainnet / testnet / futurenet. No PII. */
   activeNetwork: 'active-network',
+  /** Onboarding tour progress (#701): last step reached + completed/dismissed flag. No PII. */
+  onboardingTour: 'onboarding-tour',
+  /** Community moderation reports + decisions (#699). Reporter identity is never stored. */
+  moderationReports: 'moderation-reports',
+  /** Dated transparency report snapshots (#700), keyed by period. Aggregates only. */
+  transparencyArchive: 'transparency-archive',
 } as const
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS]
@@ -182,6 +188,7 @@ export function _registerDurableReset(fn: () => void): void {
  * in {@link STORAGE_KEYS} are touched, so unrelated data on the origin is left alone.
  */
 export async function clearAllData(): Promise<void> {
+  durableResetHook?.()
   for (const key of Object.values(STORAGE_KEYS)) {
     remove(key)
   }

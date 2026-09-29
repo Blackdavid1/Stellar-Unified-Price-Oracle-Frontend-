@@ -29,6 +29,9 @@ import { PairSearchBar } from '../components/PairSearchBar'
 import { LazyPriceTable, preloadPriceTable } from '../utils/chunks'
 import { buildConditionGroupFromFormData } from '../utils/alertEvaluator'
 import { deriveSourceHealths } from '../utils/sourceHealth'
+import { WORKSPACE_PARAM, type Workspace } from '../utils/workspaceShare'
+import { OnboardingTour, resetTour } from '../components/OnboardingTour'
+import { WorkspaceShareDialog } from '../components/WorkspaceShareDialog'
 
 const SKELETON_COUNT = 8
 
@@ -142,6 +145,9 @@ export function Dashboard() {
   const pairNames = useMemo(() => [...new Set(prices.map((p) => p.assetPair))].sort(), [prices])
   const scheduledExports = useScheduledExports(merged)
   const [scheduledExportsOpen, setScheduledExportsOpen] = useState(false)
+  const [tourOpen, setTourOpen] = useState(false)
+  const incomingWorkspace = searchParams.get(WORKSPACE_PARAM)
+  const [shareOpen, setShareOpen] = useState(() => incomingWorkspace !== null)
 
   const filtered = useMemo(() => {
     let result = merged
@@ -288,8 +294,69 @@ export function Dashboard() {
     })
   }, [])
 
+  useDashboardCommands({
+    pairs: pairNames,
+    hasExportData: filtered.length > 0,
+    exportAllowed,
+    exportCooldownSec,
+    onExport: (format) => enqueueExport(format, filtered, exportColumns),
+    onOpenColumnSelector: () => setColumnModalOpen(true),
+    onCreateAlert: () => {
+      setModalPair('')
+      setModalOpen(true)
+    },
+  })
+
+  const openTour = () => {
+    resetTour()
+    setTourOpen(true)
+  }
+
+  const workspace = useMemo<Workspace>(
+    () => ({
+      v: 1,
+      pairs: preferences.cardOrder,
+      search,
+      filters: filterState,
+      columns: exportColumns,
+      chart: { view: dashboardView },
+    }),
+    // filterState is re-derived from searchParams every render; key on the params string.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [preferences.cardOrder, search, searchParams.toString(), exportColumns, dashboardView],
+  )
+
+  const applyWorkspace = (ws: Workspace) => {
+    const params = new URLSearchParams()
+    if (ws.search) params.set('search', ws.search)
+    const f = ws.filters
+    if (f.sources.length) params.set('sources', f.sources.join(','))
+    if (f.minConf > 0) params.set('minConf', String(f.minConf))
+    if (f.maxConf < 100) params.set('maxConf', String(f.maxConf))
+    if (f.minPrice) params.set('minPrice', f.minPrice)
+    if (f.maxPrice) params.set('maxPrice', f.maxPrice)
+    if (f.updatedWithin !== 'all') params.set('updatedWithin', f.updatedWithin)
+    if (f.sort) params.set('sort', f.sort)
+    params.set('sortDir', f.sortDir)
+    updatePreference('cardOrder', ws.pairs)
+    if (ws.columns.length) setExportColumns(ws.columns)
+    setDashboardView(ws.chart.view)
+    navigate({ search: params.toString() }, { replace: true })
+    setShareOpen(false)
+  }
+
   return (
     <div ref={mainRef} {...pullHandlers} {...swipeHandlers}>
+      <OnboardingTour forceOpen={tourOpen} onClose={() => setTourOpen(false)} />
+      {shareOpen && (
+        <WorkspaceShareDialog
+          workspace={workspace}
+          baseUrl={`${window.location.origin}${import.meta.env.BASE_URL.replace(/\/$/, '')}/dashboard`}
+          incomingPayload={incomingWorkspace}
+          onApply={applyWorkspace}
+          onClose={() => setShareOpen(false)}
+        />
+      )}
       {/* Pull-to-refresh indicator */}
       {(pullState.pullDistance > 0 || pullState.refreshing) && (
         <div
@@ -327,6 +394,13 @@ export function Dashboard() {
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">{t('dashboard.title')}</h1>
           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{t('dashboard.subtitle')}</p>
+          <button
+            type="button"
+            onClick={() => setShareOpen(true)}
+            className="mt-2 text-xs text-cyan-600 dark:text-cyan-400 underline underline-offset-2"
+          >
+            Share workspace
+          </button>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <PairSearchBar
@@ -630,6 +704,21 @@ export function Dashboard() {
         <div className="text-center py-32 text-gray-500">
           <p className="text-lg mb-2">{t('dashboard.emptyState.noFeeds')}</p>
           <p className="text-sm">{t('dashboard.emptyState.noFeedsDetail')}</p>
+          <div className="mt-4 flex flex-wrap justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => refetchPrices()}
+              className="px-3 py-1.5 rounded bg-cyan-600 text-white"
+            >
+              Retry loading feeds
+            </button>
+            <button type="button" onClick={() => navigate('/price/XLM-USD')} className="px-3 py-1.5 rounded border">
+              View sample pair (XLM/USD)
+            </button>
+            <button type="button" onClick={openTour} className="px-3 py-1.5 rounded border">
+              Take the tour
+            </button>
+          </div>
         </div>
       )}
 
@@ -643,6 +732,13 @@ export function Dashboard() {
               ? t('dashboard.emptyState.noResultsFilterHint')
               : t('dashboard.emptyState.noResultsSearchHint')}
           </p>
+          <button
+            type="button"
+            onClick={() => navigate({ search: '' }, { replace: true })}
+            className="mt-4 px-3 py-1.5 rounded bg-cyan-600 text-white"
+          >
+            Clear search and filters
+          </button>
         </div>
       )}
 
