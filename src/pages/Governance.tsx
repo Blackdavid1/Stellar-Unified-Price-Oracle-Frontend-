@@ -1,30 +1,42 @@
 /**
  * @file Governance dashboard.
  *
- * Two questions for community governance, side by side:
- *   1. what decisions are being voted on, and
- *   2. how each oracle source has actually performed.
+ * Surfaces four governance concerns together:
+ *   1. Community proposals under vote.
+ *   2. Source performance (client-observed, provisional).
+ *   3. Parameter registry — who owns each tunable, full change log (#698).
+ *   4. Reputation scores with decay and sybil resistance (#697).
+ *   5. Incentive and treasury accounting (#696).
+ *   6. Price dispute register (#695).
  *
  * ## Trust posture
  *
- * These figures are political ammunition, so the page is written to be hard to
- * misread:
- *
- * - Vote tallies come verbatim from `GET /api/governance/proposals`. An
- *   unreported value renders as "not reported" — never as zero.
- * - Source metrics are shared with the Dashboard via `deriveSourceHealths` so
- *   the two views cannot disagree, and they are labelled as *client-observed*
- *   rather than authoritative monitoring (see the provenance panel).
+ * - Vote tallies come verbatim from the API. An unreported value renders as
+ *   "not reported" — never as zero.
+ * - Source metrics are labelled as *client-observed* (provisional).
  * - The page is a read-only mirror. It casts no votes and is not the source of
  *   truth; proposals that fail schema validation are withheld, not shown.
+ * - Parameter, reputation, incentive, and dispute data are all rendered verbatim
+ *   as reported by the API. Nothing is inferred or fabricated.
  */
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import { GovernanceProposalCard } from '../components/GovernanceProposalCard'
 import { ReliabilityLeaderboard } from '../components/ReliabilityLeaderboard'
+import { ParameterRegistryPanel } from '../components/ParameterRegistryPanel'
+import { ReputationScorePanel } from '../components/ReputationScorePanel'
+import { IncentiveLedgerPanel } from '../components/IncentiveLedgerPanel'
+import { DisputePanel } from '../components/DisputePanel'
 import { usePriceContext } from '../context/PriceContext'
 import { useSwr } from '../hooks/useSwr'
-import { fetchGovernanceProposals, fetchPriceHistory } from '../api/rest'
+import {
+  fetchGovernanceProposals,
+  fetchPriceHistory,
+  fetchParameterRegistry,
+  fetchReputationScores,
+  fetchIncentiveSummaries,
+  fetchPriceDisputes,
+} from '../api/rest'
 import { VALID_PAIRS, type PriceHistoryEntry } from '../types'
 import { deriveSourceHealths } from '../utils/sourceHealth'
 import { orderProposals } from '../utils/governance'
@@ -61,6 +73,34 @@ export function Governance(): ReactElement {
     { staleTime: 120_000, refreshInterval: 300_000 },
   )
 
+  // #698 — Parameter registry
+  const { data: parameterRecords } = useSwr(
+    'governance/parameter-registry',
+    (signal) => fetchParameterRegistry(signal),
+    { staleTime: 120_000, refreshInterval: 300_000 },
+  )
+
+  // #697 — Reputation scores
+  const { data: reputationScores } = useSwr(
+    'governance/reputation-scores',
+    (signal) => fetchReputationScores(signal),
+    { staleTime: 60_000, refreshInterval: 120_000 },
+  )
+
+  // #696 — Incentive summaries
+  const { data: incentiveSummaries } = useSwr(
+    'governance/incentive-summaries',
+    (signal) => fetchIncentiveSummaries(signal),
+    { staleTime: 120_000, refreshInterval: 300_000 },
+  )
+
+  // #695 — Price disputes
+  const { data: disputes } = useSwr(
+    'governance/disputes',
+    (signal) => fetchPriceDisputes(signal),
+    { staleTime: 60_000, refreshInterval: 120_000 },
+  )
+
   const sourceHealths = useMemo(() => deriveSourceHealths(prices), [prices])
 
   const ordered = useMemo(() => orderProposals(proposals ?? []), [proposals])
@@ -80,7 +120,8 @@ export function Governance(): ReactElement {
       <header className="flex flex-col gap-2">
         <h1 className="text-2xl font-semibold text-gray-100">Governance</h1>
         <p className="text-sm text-gray-400">
-          What the community is voting on, and how each oracle source has performed.
+          What the community is voting on, source performance, system parameters, reputation scores, incentive
+          accounting, and formal dispute records.
         </p>
       </header>
 
@@ -106,6 +147,13 @@ export function Governance(): ReactElement {
               Reported verbatim by the governance API. Nothing is inferred client-side: an unreported value is shown as
               &ldquo;not reported&rdquo;, never as zero. Proposals that fail schema validation are withheld rather than
               displayed.
+            </dd>
+          </div>
+          <div className="flex flex-col gap-1">
+            <dt className="font-medium text-gray-300">Parameters, reputation, incentives, disputes</dt>
+            <dd>
+              All reported verbatim by the aggregator API. Nothing is derived, inferred, or fabricated client-side. A
+              missing value is shown as &ldquo;not reported&rdquo;.
             </dd>
           </div>
         </dl>
@@ -194,6 +242,26 @@ export function Governance(): ReactElement {
           )}
         </ErrorBoundary>
       </section>
+
+      {/* ── #698 Parameter registry ────────────────────────────────────── */}
+      <ErrorBoundary boundaryId="governance-parameter-registry" featureLabel="Parameter registry">
+        <ParameterRegistryPanel records={parameterRecords ?? []} now={now} />
+      </ErrorBoundary>
+
+      {/* ── #697 Reputation scores ─────────────────────────────────────── */}
+      <ErrorBoundary boundaryId="governance-reputation-scores" featureLabel="Reputation scores">
+        <ReputationScorePanel scores={reputationScores ?? []} now={now} />
+      </ErrorBoundary>
+
+      {/* ── #696 Incentive accounting ──────────────────────────────────── */}
+      <ErrorBoundary boundaryId="governance-incentive-accounting" featureLabel="Incentive accounting">
+        <IncentiveLedgerPanel summaries={incentiveSummaries ?? []} />
+      </ErrorBoundary>
+
+      {/* ── #695 Price disputes ────────────────────────────────────────── */}
+      <ErrorBoundary boundaryId="governance-disputes" featureLabel="Price disputes">
+        <DisputePanel disputes={disputes ?? []} now={now} />
+      </ErrorBoundary>
     </div>
   )
 }
