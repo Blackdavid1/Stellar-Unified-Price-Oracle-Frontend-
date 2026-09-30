@@ -41,6 +41,19 @@ jobs:
 
       - run: npm ci
 
+      # Dependency policy (#688): fail the build on a disallowed license before
+      # anything is built or released. The allow-list lives in
+      # .license-allowlist.json; exceptions (with owner + expiry) live in
+      # license-exceptions.json, mirroring the sri-exceptions.json conventions.
+      - name: Enforce license policy
+        run: node scripts/check-licenses.mjs
+
+      # Dependency policy (#688): enforce the severity -> upgrade SLA mapping
+      # documented in docs/DEPENDENCY_POLICY.md. Fails when a known advisory has
+      # exceeded its remediation window for its severity.
+      - name: Enforce vulnerability upgrade SLA
+        run: node scripts/check-audit-sla.mjs
+
       - name: Build
         run: npm run build
         env:
@@ -69,6 +82,13 @@ jobs:
         if: success() && github.ref == 'refs/heads/main'
         run: tar -C dist -czf dist.tar.gz .
 
+      # Dependency policy (#688): generate a CycloneDX SBOM for the exact
+      # dependency tree that produced this release and attach it to the release
+      # artifacts alongside the build output.
+      - name: Generate SBOM (CycloneDX)
+        if: success() && github.ref == 'refs/heads/main'
+        run: npx --yes @cyclonedx/cyclonedx-npm --output-file sbom.cdx.json
+
       # Generates a signed SLSA-style provenance attestation binding this exact
       # artifact hash to the commit, workflow, and runner that built it, using
       # GitHub's OIDC-backed Sigstore signing (no stored keys). A failure here
@@ -79,12 +99,31 @@ jobs:
         with:
           subject-path: 'dist.tar.gz'
 
+      # Dependency policy (#688): attest the SBOM too, so consumers can verify
+      # the dependency inventory was produced by this workflow run.
+      - name: Attest SBOM provenance
+        if: success() && github.ref == 'refs/heads/main'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: 'sbom.cdx.json'
+
       - name: Upload to CDN (on main release)
         if: success() && github.ref == 'refs/heads/main'
         run: |
           echo "Build artifacts ready for deployment:"
           ls -lah dist/
         # Replace with actual CDN upload command (e.g., AWS S3, Vercel, etc.)
+
+      # Dependency policy (#688): publish the SBOM as a release asset so it is
+      # attached to the release artifacts for every main release.
+      - name: Publish SBOM to release
+        if: success() && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: sbom.cdx.json
+          tag_name: ${{ github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create GitHub Release Summary
         if: always()
