@@ -16,6 +16,10 @@
  *
  * Render data is pushed to the performanceMonitor as performance marks and
  * logged to the console in DEV mode so it appears in DevTools.
+ *
+ * The same registry powers the CI render-profiling harness
+ * (`src/perf/renderProfiler.ts`), so per-component budgets measure exactly
+ * what production measures.
  */
 
 import { useRef, useEffect } from 'react'
@@ -42,6 +46,14 @@ export function subscribeRenderInfo(listener: RenderListener): () => void {
 
 export function getRenderCounts(): Map<string, number> {
   return new Map(renderCounts)
+}
+
+/**
+ * Clears the render-count registry. Used by the CI render-profiling harness
+ * to guarantee each profiling run starts from a deterministic baseline.
+ */
+export function resetRenderCounts(): void {
+  renderCounts.clear()
 }
 
 function detectChanges(
