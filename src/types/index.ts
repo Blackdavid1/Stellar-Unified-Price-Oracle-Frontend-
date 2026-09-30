@@ -31,6 +31,14 @@ export { isPriceData, ATTRIBUTION_RING_BUFFER_SIZE } from './price'
 
 // Governance types — see src/types/governance.ts
 export type { ProposalStatus, VoteChoice, VoteTally, GovernanceProposal } from './governance'
+// #698 — Transparent parameter registry
+export type { ParameterChangeEntry, ParameterRecord } from './governance'
+// #697 — Reputation decay and sybil resistance
+export type { SybilRisk, SourceReputationScore } from './governance'
+// #696 — Treasury and incentive accounting
+export type { AccountingPeriod, IncentiveLedgerEntry, SourceIncentiveSummary } from './governance'
+// #695 — Dispute and challenge process
+export type { DisputeStatus, DisputeEvidence, DisputeComment, PriceDispute } from './governance'
 
 // On-chain price / proof types — see src/types/onChainPrice.ts
 export type { OnChainPriceRecord, SourceContribution, PriceProof } from './onChainPrice'

@@ -1,6 +1,16 @@
 import { config } from '../config'
 import { showApiErrorToast } from '../context/ToastContext'
-import type { GovernanceProposal, PriceData, PriceHistoryResponse, PriceProof, RateLimitInfo } from '../types'
+import type {
+  GovernanceProposal,
+  ParameterRecord,
+  SourceReputationScore,
+  SourceIncentiveSummary,
+  PriceDispute,
+  PriceData,
+  PriceHistoryResponse,
+  PriceProof,
+  RateLimitInfo,
+} from '../types'
 import type { OnChainPriceRecord, OracleNetwork } from '../types/onchain'
 import { fetchWithRetry } from './retry'
 import {
@@ -11,6 +21,10 @@ import {
   OnChainPriceRecordSchema,
   PriceProofSchema,
   GovernanceProposalSchema,
+  ParameterRecordSchema,
+  SourceReputationScoreSchema,
+  SourceIncentiveSummarySchema,
+  PriceDisputeSchema,
 } from './schemas'
 import { validate } from './validate'
 import { getAcceptVersionHeader } from './version'
@@ -555,4 +569,127 @@ export async function fetchOnChainPrice(
     signal,
   )
   return validate(OnChainPriceRecordSchema, raw)
+}
+
+// ---------------------------------------------------------------------------
+// #698 — Parameter registry
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetches the full parameter registry from the governance API.
+ *
+ * Each entry is validated individually; malformed entries are dropped with a
+ * warning so one bad record cannot blank the whole registry.
+ */
+export async function fetchParameterRegistry(signal?: AbortSignal): Promise<ParameterRecord[]> {
+  const raw = await request<unknown>('/api/governance/parameters', undefined, signal)
+
+  if (!Array.isArray(raw)) {
+    console.warn('[governance] fetchParameterRegistry: expected an array; received', typeof raw)
+    return []
+  }
+
+  const records: ParameterRecord[] = []
+  for (const item of raw) {
+    const parsed = ParameterRecordSchema.safeParse(item)
+    if (parsed.success) {
+      records.push(parsed.data)
+    } else {
+      const message = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
+      console.warn(`[governance] dropping malformed parameter record — ${message}`)
+    }
+  }
+  return records
+}
+
+// ---------------------------------------------------------------------------
+// #697 — Reputation scores
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetches current reputation scores (with decay metadata) for all sources.
+ *
+ * Entries that fail validation are dropped individually so one bad score
+ * cannot blank the reputation panel.
+ */
+export async function fetchReputationScores(signal?: AbortSignal): Promise<SourceReputationScore[]> {
+  const raw = await request<unknown>('/api/governance/reputation', undefined, signal)
+
+  if (!Array.isArray(raw)) {
+    console.warn('[governance] fetchReputationScores: expected an array; received', typeof raw)
+    return []
+  }
+
+  const scores: SourceReputationScore[] = []
+  for (const item of raw) {
+    const parsed = SourceReputationScoreSchema.safeParse(item)
+    if (parsed.success) {
+      scores.push(parsed.data)
+    } else {
+      const message = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
+      console.warn(`[governance] dropping malformed reputation score — ${message}`)
+    }
+  }
+  return scores
+}
+
+// ---------------------------------------------------------------------------
+// #696 — Incentive summaries
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetches incentive accounting summaries for all source operators.
+ *
+ * Entries that fail validation are dropped individually.
+ */
+export async function fetchIncentiveSummaries(signal?: AbortSignal): Promise<SourceIncentiveSummary[]> {
+  const raw = await request<unknown>('/api/governance/incentives', undefined, signal)
+
+  if (!Array.isArray(raw)) {
+    console.warn('[governance] fetchIncentiveSummaries: expected an array; received', typeof raw)
+    return []
+  }
+
+  const summaries: SourceIncentiveSummary[] = []
+  for (const item of raw) {
+    const parsed = SourceIncentiveSummarySchema.safeParse(item)
+    if (parsed.success) {
+      summaries.push(parsed.data)
+    } else {
+      const message = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
+      console.warn(`[governance] dropping malformed incentive summary — ${message}`)
+    }
+  }
+  return summaries
+}
+
+// ---------------------------------------------------------------------------
+// #695 — Price disputes
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetches the formal price dispute register from the governance API.
+ *
+ * Disputes that fail validation are dropped individually so one malformed
+ * entry cannot wipe the dispute record.
+ */
+export async function fetchPriceDisputes(signal?: AbortSignal): Promise<PriceDispute[]> {
+  const raw = await request<unknown>('/api/governance/disputes', undefined, signal)
+
+  if (!Array.isArray(raw)) {
+    console.warn('[governance] fetchPriceDisputes: expected an array; received', typeof raw)
+    return []
+  }
+
+  const disputes: PriceDispute[] = []
+  for (const item of raw) {
+    const parsed = PriceDisputeSchema.safeParse(item)
+    if (parsed.success) {
+      disputes.push(parsed.data)
+    } else {
+      const message = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
+      console.warn(`[governance] dropping malformed dispute — ${message}`)
+    }
+  }
+  return disputes
 }
