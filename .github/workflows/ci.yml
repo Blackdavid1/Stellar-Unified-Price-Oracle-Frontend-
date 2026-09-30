@@ -115,6 +115,45 @@ jobs:
 
       - run: npm run test:e2e
 
+  # ── Interaction latency (INP) budget ────────────────────────────────────────
+  # Enforces the p75 INP budget (< 200ms) for key interactions — filter change,
+  # row click, alert create — on a scripted mid-range CPU profile. Fails CI when
+  # a scripted interaction regresses beyond the budget (#683).
+  interaction-latency:
+    needs: [frontend]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: build
+          path: dist/
+
+      - run: npx playwright install --with-deps chromium
+
+      - name: Measure INP against budget
+        run: npm run test:perf:inp
+        env:
+          CI: 'true'
+          INP_BUDGET_MS: '200'
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: inp-report
+          path: reports/inp/
+          retention-days: 14
+
   # ── Visual regression ───────────────────────────────────────────────────────
   # Compares screenshots against baselines stored in e2e/snapshots/.
   # The job fails if any screenshot differs beyond the configured threshold.

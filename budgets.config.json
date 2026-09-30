@@ -45,6 +45,55 @@
     "cssLimitKb": 6,
     "assetLimitKb": 300
   },
+  "interactionLatency": {
+    "profile": "mid-range",
+    "percentile": 75,
+    "budgetMs": 200,
+    "fieldMetric": "inp",
+    "interactions": {
+      "filterChange": {
+        "budgetMs": 200,
+        "regressionGateMs": 200
+      },
+      "rowClick": {
+        "budgetMs": 200,
+        "regressionGateMs": 200
+      },
+      "alertCreate": {
+        "budgetMs": 200,
+        "regressionGateMs": 200
+      }
+    }
+  },
+  "startup": {
+    "profile": "mid-range",
+    "percentile": 75,
+    "cold": {
+      "ttiMs": 3500,
+      "fmpMs": 1800,
+      "regressionGateMs": 3500,
+      "fieldMetric": "startup_cold"
+    },
+    "warm": {
+      "ttiMs": 1200,
+      "fmpMs": 600,
+      "regressionGateMs": 1200,
+      "fieldMetric": "startup_warm"
+    },
+    "ratio": {
+      "fieldMetric": "startup_cold_warm_ratio",
+      "targetRatio": 0.5
+    },
+    "cacheWarming": {
+      "indexedDbHydration": true,
+      "preloadHints": true,
+      "stalenessValidation": {
+        "required": true,
+        "maxAgeMs": 300000,
+        "onStale": "discard-and-treat-as-cold"
+      }
+    }
+  },
   "vendorChunks": {
     "vendor-react": {
       "limitKb": 55,
