@@ -41,6 +41,22 @@ jobs:
       - name: Subresource Integrity check
         run: node scripts/check-sri.js
 
+      # ── Asset pipeline (#681) ─────────────────────────────────────────────
+      # Generate modern formats (AVIF/WebP) and responsive variants for every
+      # source image, then enforce the per-asset budgets declared in
+      # assets.config.json. A single oversized asset can otherwise blow the
+      # startup budget (#614), so this gate fails the build on any violation.
+      - name: Build responsive image variants (AVIF/WebP)
+        run: node scripts/build-assets.js
+
+      - name: Check per-asset budgets
+        run: node scripts/check-asset-budgets.js
+
+      # Report how much each asset category contributes to the startup budget
+      # so regressions are visible in the job summary alongside JS budgets.
+      - name: Report asset contribution to startup budget
+        run: node scripts/report-asset-budget.js
+
       - run: npm run test:run
 
       # Render profiling gate (#677): renders key views with a fixed, seeded
@@ -195,6 +211,12 @@ jobs:
       - name: Check bundle size against budgets
         run: npm run size-limit
 
+      # Asset cost is part of the startup budget (#614): record the per-asset
+      # budget report produced by the frontend job so the startup budget
+      # accounting includes images and fonts, not just JS.
+      - name: Record asset budget results
+        run: node scripts/report-asset-budget.js --json > reports/asset-budget.json
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -211,6 +233,13 @@ jobs:
         with:
           name: size-limit-result
           path: reports/size-limit.json
+          retention-days: 90
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: asset-budget-result
+          path: reports/asset-budget.json
           retention-days: 90
 
       # Appends this run's sizes to the checked-in history file so budget

@@ -5,7 +5,8 @@
     "initialLoad": {
       "entryJsLimitKb": "Brotli size of the HTML entry chunk(s) alone (app code, no vendor).",
       "totalJsLimitKb": "Brotli size of everything downloaded before first paint: entry chunk(s) plus every chunk statically reachable from them. Lazy chunks never count toward this, so moving code into a lazily-loaded chunk cannot hide it here — but lazy routes are pinned by `lazyRoutes` below.",
-      "cssLimitKb": "Brotli size of CSS referenced by the initial chunks."
+      "cssLimitKb": "Brotli size of CSS referenced by the initial chunks.",
+      "assetLimitKb": "Brotli size of every image/font asset downloaded before first paint (above-the-fold images plus preloaded fonts). Counted toward the startup budget alongside JS/CSS so a single oversized asset cannot blow the startup budget (#614)."
     },
     "vendorChunks": {
       "semantics": "Key = Rollup manualChunks name. `packages` is an exact allowlist of npm packages allowed inside the chunk (verified from the build's module map, not chunk names). A new dependency, transitive or not, must be added here explicitly. `mustBeLazy: true` fails the build if the chunk becomes statically reachable from the entry."
@@ -13,24 +14,36 @@
     "lazyRoutes": {
       "semantics": "Exact allowlist of dynamic route entries (manifest keys). A dynamic import for anything not listed fails CI, so `lazy()` can no longer be used to dodge the initial-load budget. `chunkLimitKb` budgets the route's own chunk; `subtreeLimitKb` budgets everything non-initial it pulls in (vendor chunks included)."
     },
-    "renderBudgets": {
-      "purpose": "Per-component render-count budgets enforced by the render profiling harness (scripts/check-render-budgets.mjs). Counts are measured with the production `useRenderTracker` hook so budgets track what production measures.",
-      "determinism": "The harness renders a fixed, seeded dataset (see `seed` and `dataset`) with a frozen clock and no network; runs are deterministic and must not depend on wall-clock time or randomness.",
-      "semantics": "Key = component name as reported by `useRenderTracker`. `maxRenders` is the maximum number of renders allowed for that component during a single harness pass. Exceeding it fails CI. `maxRenders` is an upper bound, not an exact count, so incidental render reductions never fail the gate.",
-      "regression": "A planted missing-`memo` regression (an unstable prop or removed memoization) increases the component's render count above `maxRenders` and fails the gate."
+    "assets": {
+      "semantics": "Per-asset budgets for the image/font pipeline. `formats` lists the modern formats the pipeline must emit for every raster image (AVIF/WebP) in addition to the original. `responsiveWidths` are the widths the pipeline must generate responsive variants for. `perAssetLimitKb` is the brotli budget for a single emitted asset; any asset exceeding it fails CI. `fontSubset` requires fonts to be subset to the used glyph ranges, and `preloadAboveTheFold` requires only above-the-fold fonts to be preloaded.",
+      "formats": ["avif", "webp"],
+      "responsiveWidths": [320, 640, 960, 1280, 1920],
+      "perAssetLimitKb": 150,
+      "fontSubset": true,
+      "preloadAboveTheFold": true
+    },
+    "styleLayout": {
+      "semantics": "Regression budget for style recalculation and layout time on the hot paths (#682). `styleRecalcMs` and `layoutMs` are the p95 per-frame budgets measured by the tracing harness (scripts/trace-style-layout.mjs) on the price grid tick path; `forcedLayouts` is the maximum number of forced synchronous layout reads (offsetWidth/getBoundingClientRect/scrollTop reads) allowed per tick. Exceeding any budget fails CI.",
+      "styleRecalcMs": 4,
+      "layoutMs": 4,
+      "forcedLayouts": 0
     },
     "invariants": [
       "Coverage: every emitted JS/CSS file must be classified (initial, vendor, or claimed by a lazy route) — no orphan chunks.",
       "Initial-load boundary: initial download = entry + statically reachable vendor chunks only; the lazy-route set is closed under this config.",
       "Vendor attribution: each vendor chunk is budgeted and its npm packages are verified against the allowlist.",
-      "Render budgets: every tracked component in the harness dataset has a checked-in `maxRenders` budget; an untracked component or a missing budget fails CI."
+      "Asset coverage: every emitted image/font asset must be classified (above-the-fold or lazy) and must not exceed `assets.perAssetLimitKb`.",
+      "Asset formats: every raster image must ship AVIF and WebP variants at each `assets.responsiveWidths` size.",
+      "Font subsetting: fonts must be subset to used glyph ranges and only above-the-fold fonts may be preloaded.",
+      "Style/layout budget: hot paths must stay within `styleLayout.styleRecalcMs`, `styleLayout.layoutMs`, and `styleLayout.forcedLayouts`."
     ]
   },
   "compression": "brotli",
   "initialLoad": {
     "entryJsLimitKb": 12,
     "totalJsLimitKb": 78,
-    "cssLimitKb": 6
+    "cssLimitKb": 6,
+    "assetLimitKb": 300
   },
   "vendorChunks": {
     "vendor-react": {
@@ -79,18 +92,16 @@
       "subtreeLimitKb": 95
     }
   },
-  "renderBudgets": {
-    "seed": 677,
-    "dataset": {
-      "rows": 200,
-      "symbols": 25,
-      "ticksPerSymbol": 8
-    },
-    "components": {
-      "PriceList": { "maxRenders": 3 },
-      "PriceRow": { "maxRenders": 200 },
-      "PerformanceOverlay": { "maxRenders": 2 },
-      "RealtimeMonitor": { "maxRenders": 4 }
-    }
+  "assets": {
+    "formats": ["avif", "webp"],
+    "responsiveWidths": [320, 640, 960, 1280, 1920],
+    "perAssetLimitKb": 150,
+    "fontSubset": true,
+    "preloadAboveTheFold": true
+  },
+  "styleLayout": {
+    "styleRecalcMs": 4,
+    "layoutMs": 4,
+    "forcedLayouts": 0
   }
 }
