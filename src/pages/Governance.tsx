@@ -22,6 +22,10 @@ import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import { GovernanceProposalCard } from '../components/GovernanceProposalCard'
 import { ReliabilityLeaderboard } from '../components/ReliabilityLeaderboard'
+import { ParameterRegistry } from '../components/ParameterRegistry'
+import { ReputationPanel } from '../components/ReputationPanel'
+import { TreasuryPanel } from '../components/TreasuryPanel'
+import { DisputePanel } from '../components/DisputePanel'
 import { usePriceContext } from '../context/PriceContext'
 import { useSwr } from '../hooks/useSwr'
 import { fetchGovernanceProposals, fetchPriceHistory } from '../api/rest'
@@ -194,6 +198,26 @@ export function Governance(): ReactElement {
           )}
         </ErrorBoundary>
       </section>
+
+      {/* ── #697 Reputation ────────────────────────────────────────────── */}
+      <ErrorBoundary boundaryId="governance-reputation" featureLabel="Source reputation">
+        <ReputationPanel />
+      </ErrorBoundary>
+
+      {/* ── #696 Treasury ──────────────────────────────────────────────── */}
+      <ErrorBoundary boundaryId="governance-treasury" featureLabel="Treasury">
+        <TreasuryPanel />
+      </ErrorBoundary>
+
+      {/* ── #698 Parameter registry ────────────────────────────────────── */}
+      <ErrorBoundary boundaryId="governance-parameters" featureLabel="Parameter registry">
+        <ParameterRegistry />
+      </ErrorBoundary>
+
+      {/* ── #695 Disputes ──────────────────────────────────────────────── */}
+      <ErrorBoundary boundaryId="governance-disputes" featureLabel="Price disputes">
+        <DisputePanel />
+      </ErrorBoundary>
     </div>
   )
 }
