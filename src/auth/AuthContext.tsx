@@ -12,6 +12,56 @@ const RETURN_TO_KEY = 'stellar-oracle:auth-return-to'
 
 export type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated'
 
+/**
+ * Authorization scopes. Authentication answers "is someone signed in";
+ * authorization answers "is this user allowed to do this". Every gated
+ * route/action must declare the scope it requires so the check is explicit
+ * and testable rather than implied by the presence of a session.
+ */
+export type AuthScope =
+  | 'wallet:read'
+  | 'wallet:write'
+  | 'developer:read'
+  | 'developer:write'
+  | 'admin'
+
+/**
+ * Centralized route/action -> required scope mapping. This is the single
+ * source of truth for authorization. Adding a new gated route without an
+ * entry here is caught by the authz coverage test (and thus CI).
+ */
+export const ROUTE_SCOPES = {
+  '/wallet': 'wallet:read',
+  '/wallet/send': 'wallet:write',
+  '/developer': 'developer:read',
+  '/developer/settings': 'developer:write',
+  '/admin': 'admin',
+} as const satisfies Record<string, AuthScope>
+
+export type GatedRoute = keyof typeof ROUTE_SCOPES
+
+/**
+ * Returns the scope required for a gated route, or null when the route is
+ * not gated. Callers must treat a null result as "no authz entry" and fail
+ * closed rather than granting access.
+ */
+export function requiredScopeFor(route: string): AuthScope | null {
+  return (ROUTE_SCOPES as Record<string, AuthScope>)[route] ?? null
+}
+
+/**
+ * Authorization check: an authenticated user is only authorized when their
+ * granted scopes include the scope required by the route/action. Fails
+ * closed for unknown routes and for users without the required scope.
+ */
+export function isAuthorized(user: AuthUser | null, route: string): boolean {
+  if (!user) return false
+  const required = requiredScopeFor(route)
+  if (!required) return false
+  const granted = user.scopes ?? []
+  return granted.includes(required)
+}
+
 interface AuthContextValue {
   status: AuthStatus
   user: AuthUser | null
@@ -22,6 +72,8 @@ interface AuthContextValue {
   completeSignIn: (search: string) => Promise<{ returnTo: string }>
   signOut: () => Promise<void>
   signOutEverywhere: () => Promise<void>
+  /** Authorization check for a gated route/action. */
+  isAuthorized: (route: string) => boolean
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -109,8 +161,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStatus('unauthenticated')
   }, [])
 
+  const checkAuthorized = useCallback((route: string) => isAuthorized(user, route), [user])
+
   return (
-    <AuthContext.Provider value={{ status, user, error, signIn, completeSignIn, signOut, signOutEverywhere }}>
+    <AuthContext.Provider value={{ status, user, error, signIn, completeSignIn, signOut, signOutEverywhere, isAuthorized: checkAuthorized }}>
       {children}
     </AuthContext.Provider>
   )

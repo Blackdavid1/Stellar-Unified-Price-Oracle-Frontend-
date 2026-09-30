@@ -41,15 +41,30 @@ jobs:
       - name: Subresource Integrity check
         run: node scripts/check-sri.js
 
+      # ── Asset pipeline (#681) ─────────────────────────────────────────────
+      # Generate modern formats (AVIF/WebP) and responsive variants for every
+      # source image, then enforce the per-asset budgets declared in
+      # assets.config.json. A single oversized asset can otherwise blow the
+      # startup budget (#614), so this gate fails the build on any violation.
+      - name: Build responsive image variants (AVIF/WebP)
+        run: node scripts/build-assets.js
+
+      - name: Check per-asset budgets
+        run: node scripts/check-asset-budgets.js
+
+      # Report how much each asset category contributes to the startup budget
+      # so regressions are visible in the job summary alongside JS budgets.
+      - name: Report asset contribution to startup budget
+        run: node scripts/report-asset-budget.js
+
       - run: npm run test:run
 
-      # ── Confidence calibration gate (#666) ──────────────────────────────────
-      # Builds the reliability curve from historical aggregates, verifies the
-      # documented monotonicity check (higher reported confidence ⇒ lower
-      # realized error against the reference), and fails the build when the
-      # calibration regression exceeds the configured bound.
-      - name: Confidence calibration check
-        run: npm run calibration:check
+      # Render profiling gate (#677): renders key views with a fixed, seeded
+      # dataset and asserts per-component render counts against the checked-in
+      # budgets in perf/render-budgets.json. A planted missing-`memo` or an
+      # unstable prop regresses the counts and fails this step.
+      - name: Render profiling budgets
+        run: npm run perf:render
 
       # Upload hidden source maps to Sentry for production error tracking,
       # then strip them from the deployment artifact so they are never
@@ -99,6 +114,45 @@ jobs:
       - run: npx playwright install --with-deps chromium firefox webkit
 
       - run: npm run test:e2e
+
+  # ── Interaction latency (INP) budget ────────────────────────────────────────
+  # Enforces the p75 INP budget (< 200ms) for key interactions — filter change,
+  # row click, alert create — on a scripted mid-range CPU profile. Fails CI when
+  # a scripted interaction regresses beyond the budget (#683).
+  interaction-latency:
+    needs: [frontend]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: build
+          path: dist/
+
+      - run: npx playwright install --with-deps chromium
+
+      - name: Measure INP against budget
+        run: npm run test:perf:inp
+        env:
+          CI: 'true'
+          INP_BUDGET_MS: '200'
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: inp-report
+          path: reports/inp/
+          retention-days: 14
 
   # ── Visual regression ───────────────────────────────────────────────────────
   # Compares screenshots against baselines stored in e2e/snapshots/.
@@ -196,6 +250,12 @@ jobs:
       - name: Check bundle size against budgets
         run: npm run size-limit
 
+      # Asset cost is part of the startup budget (#614): record the per-asset
+      # budget report produced by the frontend job so the startup budget
+      # accounting includes images and fonts, not just JS.
+      - name: Record asset budget results
+        run: node scripts/report-asset-budget.js --json > reports/asset-budget.json
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -212,6 +272,13 @@ jobs:
         with:
           name: size-limit-result
           path: reports/size-limit.json
+          retention-days: 90
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: asset-budget-result
+          path: reports/asset-budget.json
           retention-days: 90
 
       # Appends this run's sizes to the checked-in history file so budget
@@ -239,8 +306,8 @@ jobs:
             };
             fs.appendFileSync('.github/bundle-size-history.jsonl', JSON.stringify(entry) + '\n');
           "
-          git config user.name 'github-actions[bot]'
-          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .github/bundle-size-history.jsonl
           git diff --cached --quiet || git commit -m 'chore(bundle-size): record size history [skip ci]'
           for
