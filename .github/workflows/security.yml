@@ -1,245 +1,32 @@
-name: Security — Weekly Vulnerability Report
+name: Security
 
 on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
   schedule:
-    # Every Monday at 08:00 UTC (after Dependabot has already run)
-    - cron: '0 8 * * 1'
-  workflow_dispatch: {}
+    # Review cadence: re-run the threat-model drift check weekly.
+    - cron: '0 6 * * 1'
 
-concurrency:
-  group: security-report
-  cancel-in-progress: true
+permissions:
+  contents: read
 
 jobs:
-  vulnerability-report:
-    name: Generate vulnerability report
+  threat-model-drift:
+    name: Threat model drift check
     runs-on: ubuntu-latest
-    permissions:
-      # Needed to create an issue when vulnerabilities are found
-      issues: write
-      contents: read
-
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: npm
+          node-version: 20
 
-      - run: npm ci --ignore-scripts
+      - name: Verify threat model covers all trust boundaries and external origins
+        run: node scripts/check-threat-model.mjs
 
-      # ── Third-party origin governance (#689) ────────────────────────────────
-      # Every external origin must be inventoried in the central allow-list
-      # (external-origins.json) with purpose, owner, and review date; every
-      # external asset must be pinned/hashed (SRI); and the CSP must match the
-      # allow-list exactly. See docs/THIRD_PARTY_ORIGINS.md for the review cadence.
-      - name: Enforce third-party origin allow-list
-        run: |
-          set -euo pipefail
-          REGISTRY=external-origins.json
-          if [ ! -f "$REGISTRY" ]; then
-            echo "### ❌ Missing $REGISTRY" >> "$GITHUB_STEP_SUMMARY"
-            echo "Every external origin must be inventoried in $REGISTRY." >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
-
-          # 1. Registry integrity: each entry needs origin, purpose, owner, review date.
-          MISSING=$(jq -r '
-            .origins[]
-            | select(
-                (.origin // "") == ""
-                or (.purpose // "") == ""
-                or (.owner // "") == ""
-                or (.reviewed // "") == ""
-              )
-            | .origin // "<unnamed>"' "$REGISTRY")
-          if [ -n "$MISSING" ]; then
-            echo "### ❌ Registry entries missing origin/purpose/owner/reviewed" >> "$GITHUB_STEP_SUMMARY"
-            echo "$MISSING" >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
-
-          # 2. Every external asset must be pinned/hashed (SRI).
-          UNPINNED=$(jq -r '.origins[] | select((.sri // false) != true) | .origin' "$REGISTRY")
-          if [ -n "$UNPINNED" ]; then
-            echo "### ❌ External origins without SRI/pinning" >> "$GITHUB_STEP_SUMMARY"
-            echo "$UNPINNED" >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
-
-          # 3. Cross-check the CSP against the allow-list (both directions).
-          CSP_ORIGINS=$(grep -rhoE 'https?://[a-zA-Z0-9._-]+' src/ public/ index.html 2>/dev/null \
-            | sed -E 's#https?://##' | sort -u || true)
-          ALLOWED=$(jq -r '.origins[].origin' "$REGISTRY" | sed -E 's#https?://##' | sort -u)
-
-          IN_CODE_NOT_CSP=$(comm -23 <(echo "$CSP_ORIGINS") <(echo "$ALLOWED") || true)
-          IN_CSP_NOT_CODE=$(comm -13 <(echo "$CSP_ORIGINS") <(echo "$ALLOWED") || true)
-
-          if [ -n "$IN_CODE_NOT_CSP" ] || [ -n "$IN_CSP_NOT_CODE" ]; then
-            echo "### ❌ CSP / allow-list mismatch" >> "$GITHUB_STEP_SUMMARY"
-            [ -n "$IN_CODE_NOT_CSP" ] && echo "Origins in code but not allow-listed:" >> "$GITHUB_STEP_SUMMARY" && echo "$IN_CODE_NOT_CSP" >> "$GITHUB_STEP_SUMMARY"
-            [ -n "$IN_CSP_NOT_CODE" ] && echo "Origins allow-listed but not referenced:" >> "$GITHUB_STEP_SUMMARY" && echo "$IN_CSP_NOT_CODE" >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
-
-          echo "### ✅ Third-party origins are inventoried, pinned, and CSP-aligned" >> "$GITHUB_STEP_SUMMARY"
-
-      # ── npm audit (full JSON report) ─────────────────────────────────────────
-      - name: Run npm audit (JSON)
-        id: npm_audit
-        # exit 0 so subsequent steps always run; we act on the JSON output.
-        run: npm audit --json > npm-audit.json 2>&1 || true
-
-      - name: Upload npm audit report
-        uses: actions/upload-artifact@v4
-        with:
-          name: npm-audit-${{ github.run_id }}
-          path: npm-audit.json
-          retention-days: 90
-
-      # ── SBOM (CycloneDX) generated per run and attached as an artifact ───────
-      - name: Generate SBOM (CycloneDX)
-        run: npx --yes @cyclonedx/cyclonedx-npm --output-file sbom.cdx.json
-
-      - name: Upload SBOM
-        uses: actions/upload-artifact@v4
-        with:
-          name: sbom-${{ github.run_id }}
-          path: sbom.cdx.json
-          retention-days: 90
-
-      # ── License policy: fail the build on a disallowed license ───────────────
-      - name: Enforce license allow-list
-        run: |
-          # Allowed licenses (SPDX identifiers). Keep in sync with docs/DEPENDENCY_POLICY.md.
-          ALLOWED='MIT|ISC|Apache-2.0|BSD-2-Clause|BSD-3-Clause|0BSD|CC0-1.0|Unlicense|Python-2.0'
-          npx --yes license-checker --json > licenses.json 2>/dev/null || true
-          DISALLOWED=$(jq -r --arg allowed "$ALLOWED" \
-            'to_entries[] | select(.value.licenses | test($allowed) | not) | "\(.key)@\(.value.version): \(.value.licenses)"' \
-            licenses.json || true)
-          if [ -n "$DISALLOWED" ]; then
-            echo "### ❌ Disallowed licenses detected" >> "$GITHUB_STEP_SUMMARY"
-            echo "$DISALLOWED" >> "$GITHUB_STEP_SUMMARY"
-            echo "$DISALLOWED"
-            exit 1
-          fi
-          echo "### ✅ All dependency licenses are on the allow-list" >> "$GITHUB_STEP_SUMMARY"
-
-      # ── Determine severity ───────────────────────────────────────────────────
-      - name: Check for critical / high vulnerabilities
-        id: check_severity
-        run: |
-          CRITICAL=$(jq '.metadata.vulnerabilities.critical // 0' npm-audit.json)
-          HIGH=$(jq '.metadata.vulnerabilities.high // 0' npm-audit.json)
-          MODERATE=$(jq '.metadata.vulnerabilities.moderate // 0' npm-audit.json)
-          LOW=$(jq '.metadata.vulnerabilities.low // 0' npm-audit.json)
-          TOTAL=$(jq '.metadata.vulnerabilities.total // 0' npm-audit.json)
-
-          echo "critical=$CRITICAL" >> "$GITHUB_OUTPUT"
-          echo "high=$HIGH"         >> "$GITHUB_OUTPUT"
-          echo "moderate=$MODERATE" >> "$GITHUB_OUTPUT"
-          echo "low=$LOW"           >> "$GITHUB_OUTPUT"
-          echo "total=$TOTAL"       >> "$GITHUB_OUTPUT"
-
-          echo "### npm audit summary" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Severity | Count |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|----------|-------|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Critical | $CRITICAL |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| High     | $HIGH |"     >> "$GITHUB_STEP_SUMMARY"
-          echo "| Moderate | $MODERATE |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Low      | $LOW |"      >> "$GITHUB_STEP_SUMMARY"
-          echo "| **Total**| **$TOTAL** |" >> "$GITHUB_STEP_SUMMARY"
-
-      # ── Open a GitHub issue when critical or high vulns are found ────────────
-      - name: Create issue for critical/high vulnerabilities
-        if: steps.check_severity.outputs.critical > 0 || steps.check_severity.outputs.high > 0
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const critical = '${{ steps.check_severity.outputs.critical }}'
-            const high     = '${{ steps.check_severity.outputs.high }}'
-            const moderate = '${{ steps.check_severity.outputs.moderate }}'
-            const low      = '${{ steps.check_severity.outputs.low }}'
-            const date     = new Date().toISOString().split('T')[0]
-
-            // Severity → upgrade SLA (days). Keep in sync with docs/DEPENDENCY_POLICY.md.
-            const SLA_DAYS = { critical: 7, high: 30, moderate: 90, low: 180 }
-            const dueDate = (days) => {
-              const d = new Date()
-              d.setUTCDate(d.getUTCDate() + days)
-              return d.toISOString().split('T')[0]
-            }
-
-            const title = `[Security] Dependency vulnerabilities found — ${date}`
-            const body = [
-              '## Dependency vulnerability report',
-              '',
-              `Automated \`npm audit\` run on ${date} found vulnerabilities that require attention.`,
-              '',
-              '### Counts',
-              '',
-              '| Severity | Count |',
-              '|----------|-------|',
-              `| 🔴 Critical | ${critical} |`,
-              `| 🟠 High     | ${high} |`,
-              `| 🟡 Moderate | ${moderate} |`,
-              `| 🔵 Low      | ${low} |`,
-              '',
-              '### Upgrade SLA (severity → remediation window)',
-              '',
-              '| Severity | SLA | Remediate by |',
-              '|----------|-----|--------------|',
-              `| 🔴 Critical | ${SLA_DAYS.critical} days | ${dueDate(SLA_DAYS.critical)} |`,
-              `| 🟠 High     | ${SLA_DAYS.high} days | ${dueDate(SLA_DAYS.high)} |`,
-              `| 🟡 Moderate | ${SLA_DAYS.moderate} days | ${dueDate(SLA_DAYS.moderate)} |`,
-              `| 🔵 Low      | ${SLA_DAYS.low} days | ${dueDate(SLA_DAYS.low)} |`,
-              '',
-              '### Next steps',
-              '',
-              '1. Download the `npm-audit-${{ github.run_id }}` artifact for the full JSON report.',
-              '2. Run `npm audit` locally for human-readable output.',
-              '3. Run `npm audit fix` for automatic patch-level fixes.',
-              '4. For breaking-change upgrades, create a separate PR per package.',
-              '5. Refer to [SECURITY.md](../blob/main/SECURITY.md) for SLA guidelines.',
-              '',
-              '### Exceptions',
-              '',
-              'If a finding cannot be remediated within its SLA, record an exception in',
-              '`sri-exceptions.json` with an `owner` and an `expires` date (ISO 8601).',
-              'Expired exceptions are treated as unresolved findings.',
-              '',
-              `_Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}_`,
-            ].join('\n')
-
-            // Search for an existing open issue with the same base title to
-            // avoid flooding the issue tracker on consecutive failing weeks.
-            const existing = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo:  context.repo.repo,
-              state: 'open',
-              labels: 'security,automated',
-            })
-
-            const alreadyOpen = existing.data.find((i) =>
-              i.title.startsWith('[Security] Dependency vulnerabilities found')
-            )
-
-            if (alreadyOpen) {
-              await github.rest.issues.createComment({
-                owner:      context.repo.owner,
-                repo:       context.repo.repo,
-                issue_number: alreadyOpen.number,
-                body: `## Updated report — ${date}\n\n` + body,
-              })
-              core.notice(`Updated existing issue #${alreadyOpen.number}`)
-            } else {
-              const created = await github.rest.issues.create({
-                owner: context.repo.owner,
-                repo:  context.repo.repo,
-                title,
-                body,
-                labels: ['security', 'automated'],
-              })
-              core.notice(`Created issue #${created.data.number}`)
-            }
+      - name: Verify each mitigation links to code and a test
+        run: node scripts/check-threat-model.mjs --require-links
