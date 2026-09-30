@@ -23,6 +23,14 @@ concurrency:
 # clearing partial results between attempts. A genuine regression fails all 3
 # attempts and still fails the job; a contention flake passes on retry. The
 # budgets themselves are never loosened.
+#
+# ── Asset pipeline budgets (#681) ────────────────────────────────────────────
+# The build emits modern image formats (AVIF/WebP) with responsive variants
+# and subset fonts. `scripts/asset-budget.js` walks the build output, checks
+# every emitted asset against its per-asset budget (images, fonts, and the
+# startup-critical set), and reports the asset contribution to the startup
+# budget. It exits non-zero on any violation, failing CI before Lighthouse
+# runs so an oversized asset can never silently blow the startup budget.
 jobs:
   lighthouse:
     runs-on: ubuntu-latest
@@ -44,6 +52,12 @@ jobs:
         run: npm run build
         env:
           VITE_USE_MOCK: 'true'
+
+      # Enforce per-asset budgets on the emitted build output. Fails CI when
+      # any image/font/startup asset exceeds its budget, and reports the asset
+      # contribution to the startup budget.
+      - name: Enforce asset budgets
+        run: node scripts/asset-budget.js
 
       # Baseline from the last successful run on the base branch, used to
       # compute the score/metric deltas shown in the PR comment. A cache miss
