@@ -22,6 +22,7 @@ import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import { GovernanceProposalCard } from '../components/GovernanceProposalCard'
 import { ReliabilityLeaderboard } from '../components/ReliabilityLeaderboard'
+import { ReportButton } from '../components/ReportButton'
 import { usePriceContext } from '../context/PriceContext'
 import { useSwr } from '../hooks/useSwr'
 import { fetchGovernanceProposals, fetchPriceHistory } from '../api/rest'
@@ -162,6 +163,9 @@ export function Governance(): ReactElement {
               {ordered.map((proposal) => (
                 <li key={proposal.id}>
                   <GovernanceProposalCard proposal={proposal} now={now} />
+                  <div className="text-end mt-1">
+                    <ReportButton surface="governance" targetId={proposal.id} />
+                  </div>
                 </li>
               ))}
             </ul>
@@ -176,12 +180,17 @@ export function Governance(): ReactElement {
         </h2>
         <ErrorBoundary boundaryId="governance-source-performance" featureLabel="Source performance">
           {historyByPair !== undefined ? (
-            <ReliabilityLeaderboard
-              sourceHealths={sourceHealths}
-              priceHistory={historyByPair}
-              latencyLabel="Observed lag (ms)"
-              caption="Client-observed from this browser's feed history — provisional, not authoritative monitoring."
-            />
+            <>
+              <ReliabilityLeaderboard
+                sourceHealths={sourceHealths}
+                priceHistory={historyByPair}
+                latencyLabel="Observed lag (ms)"
+                caption="Client-observed from this browser's feed history — provisional, not authoritative monitoring."
+              />
+              <div className="text-end mt-1">
+                <ReportButton surface="leaderboard" targetId="reliability-leaderboard" />
+              </div>
+            </>
           ) : historyError !== null ? (
             <p role="alert" className="bg-red-500/10 border border-red-500/30 rounded-2xl p-5 text-sm text-red-300">
               Source performance history could not be loaded. Uptime and trend are withheld rather than shown as zero,
