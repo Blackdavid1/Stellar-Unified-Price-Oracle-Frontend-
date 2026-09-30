@@ -1,365 +1,258 @@
 /**
- * @file DisputePanel — Dispute & challenge process (#695).
+ * @file DisputePanel (#695)
  *
- * Displays all price disputes with their status, evidence link, and resolution
- * notes. Supports submitting a new dispute inline. All dispute data comes
- * verbatim from the API; the client never infers outcomes.
+ * Formal on-platform record for price disputes and challenges. Each dispute
+ * shows the contested price, rationale, evidence, comments, and resolution
+ * — replacing off-platform discussion and leaving an auditable trail.
+ *
+ * Rendering rules:
+ * - Status is displayed verbatim (never inferred from the clock).
+ * - A breached deadline is flagged as a caveat; the dispute is not
+ *   auto-resolved client-side.
+ * - resolutionNote renders verbatim — never truncated.
  */
-import { memo, useState, type FormEvent, type ReactElement } from 'react'
-import { useSwr } from '../hooks/useSwr'
-import { fetchDisputes, submitDispute } from '../api/rest'
-import type { PriceDispute } from '../types'
-import { DISPUTE_STATUS_LABELS, DISPUTE_OUTCOME_LABELS, isDisputeOpen, orderDisputes } from '../utils/governance'
-import { sanitizeUrl } from '../utils/htmlSanitizer'
+import { memo, useState, type ReactElement } from 'react'
+import type { PriceDispute, DisputeEvidence, DisputeComment } from '../types'
+import {
+  DISPUTE_STATUS_LABELS,
+  DISPUTE_STATUS_STYLES,
+  isDisputeResolved,
+  isDeadlineBreached,
+  orderDisputes,
+  openDisputeCount,
+  evidenceCountLabel,
+} from '../utils/disputeProcess'
 
-// ── Status badge ──────────────────────────────────────────────────────────────
-
-const STATUS_COLOURS: Record<PriceDispute['status'], string> = {
-  open: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
-  under_review: 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30',
-  resolved: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
-  dismissed: 'bg-gray-500/20 text-gray-400 border-gray-600',
+function formatTimestamp(ms: number): string {
+  return new Date(ms).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })
 }
 
-// ── Single dispute card ───────────────────────────────────────────────────────
-
-interface DisputeCardProps {
-  dispute: PriceDispute
+function truncateAddress(addr: string): string {
+  if (addr.length <= 12) return addr
+  return `${addr.slice(0, 6)}…${addr.slice(-4)}`
 }
 
-const DisputeCard = memo(function DisputeCard({ dispute }: DisputeCardProps): ReactElement {
-  const createdDate = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(
-    new Date(dispute.createdAt),
-  )
-  const resolvedDate = dispute.resolvedAt
-    ? new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(
-        new Date(dispute.resolvedAt),
-      )
-    : null
+interface EvidenceListProps {
+  items: DisputeEvidence[]
+}
 
-  const safeEvidenceUrl = dispute.evidenceUrl ? sanitizeUrl(dispute.evidenceUrl) : null
-
+const EvidenceList = memo(function EvidenceList({ items }: EvidenceListProps): ReactElement {
+  if (items.length === 0) {
+    return <p className="text-xs text-gray-500 italic">No evidence has been attached.</p>
+  }
   return (
-    <li
-      className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col gap-3"
-      aria-label={`Dispute ${dispute.id} for ${dispute.assetPair}`}
-    >
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div className="flex flex-col gap-0.5">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-mono text-gray-400">{dispute.id}</span>
-            <span className="font-medium text-gray-100">{dispute.assetPair}</span>
+    <ul className="flex flex-col gap-2 list-none p-0">
+      {items.map((ev) => (
+        <li key={ev.id} className="flex flex-col gap-1 text-xs">
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className="text-gray-500">{formatTimestamp(ev.submittedAt)}</span>
+            <span className="font-mono text-gray-400" title={ev.submittedBy}>
+              {truncateAddress(ev.submittedBy)}
+            </span>
           </div>
-          <span className="text-xs text-gray-500">{createdDate} — by {dispute.challenger}</span>
-        </div>
-        <span
-          className={`text-xs font-medium px-2 py-1 rounded-full border ${STATUS_COLOURS[dispute.status]}`}
-          aria-label={`Status: ${DISPUTE_STATUS_LABELS[dispute.status]}`}
-        >
-          {DISPUTE_STATUS_LABELS[dispute.status]}
-        </span>
-      </div>
-
-      <dl className="grid grid-cols-2 gap-3 text-xs">
-        <div className="flex flex-col gap-0.5">
-          <dt className="text-gray-500">Disputed price</dt>
-          <dd className="font-mono text-gray-100">{dispute.disputedPrice.toLocaleString('en-US', { maximumFractionDigits: 7 })}</dd>
-        </div>
-        {dispute.flaggedSources.length > 0 && (
-          <div className="flex flex-col gap-0.5">
-            <dt className="text-gray-500">Flagged sources</dt>
-            <dd className="text-gray-100">{dispute.flaggedSources.join(', ')}</dd>
-          </div>
-        )}
-      </dl>
-
-      <div className="flex flex-col gap-1">
-        <p className="text-xs text-gray-500">Reason</p>
-        <p className="text-sm text-gray-300">{dispute.reason}</p>
-      </div>
-
-      {safeEvidenceUrl && (
-        <a
-          href={safeEvidenceUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="self-start text-xs text-indigo-400 hover:text-indigo-300 underline underline-offset-2"
-        >
-          View attached evidence ↗
-        </a>
-      )}
-
-      {dispute.outcome !== null && (
-        <div className="border-t border-gray-800 pt-3 flex flex-col gap-1">
-          <p className="text-xs text-gray-500">
-            Outcome:{' '}
-            <span className="font-semibold text-gray-200">{DISPUTE_OUTCOME_LABELS[dispute.outcome]}</span>
-            {resolvedDate && <> · {resolvedDate}</>}
-          </p>
-          {dispute.resolutionNotes && (
-            <p className="text-xs text-gray-400 italic">{dispute.resolutionNotes}</p>
+          <p className="text-gray-300">{ev.description}</p>
+          {ev.uri !== null && (
+            <span className="font-mono text-cyan-400 break-all">{ev.uri}</span>
           )}
-        </div>
-      )}
-    </li>
+        </li>
+      ))}
+    </ul>
   )
 })
 
-// ── Submit form ───────────────────────────────────────────────────────────────
-
-interface SubmitFormProps {
-  onSubmitted: () => void
+interface CommentListProps {
+  items: DisputeComment[]
 }
 
-function SubmitDisputeForm({ onSubmitted }: SubmitFormProps): ReactElement {
-  const [assetPair, setAssetPair] = useState('')
-  const [disputedPrice, setDisputedPrice] = useState('')
-  const [priceTimestamp, setPriceTimestamp] = useState('')
-  const [reason, setReason] = useState('')
-  const [evidenceUrl, setEvidenceUrl] = useState('')
-  const [flaggedSources, setFlaggedSources] = useState('')
-  const [submitting, setSubmitting] = useState(false)
-  const [submitError, setSubmitError] = useState<string | null>(null)
-
-  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    setSubmitError(null)
-
-    const price = parseFloat(disputedPrice)
-    const timestamp = parseInt(priceTimestamp, 10)
-
-    if (!assetPair.trim() || !Number.isFinite(price) || !Number.isFinite(timestamp) || !reason.trim()) {
-      setSubmitError('Asset pair, price, timestamp (ms), and reason are required.')
-      return
-    }
-
-    const sources = flaggedSources
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean)
-
-    const rawUrl = evidenceUrl.trim() || null
-    const safeUrl = rawUrl ? sanitizeUrl(rawUrl) : null
-    if (rawUrl && !safeUrl) {
-      setSubmitError('Evidence URL uses an unsafe protocol. Only https:// links are accepted.')
-      return
-    }
-
-    try {
-      setSubmitting(true)
-      await submitDispute({
-        assetPair: assetPair.trim(),
-        disputedPrice: price,
-        priceTimestamp: timestamp,
-        reason: reason.trim(),
-        evidenceUrl: safeUrl,
-        flaggedSources: sources,
-      })
-      onSubmitted()
-    } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : 'Submission failed.')
-    } finally {
-      setSubmitting(false)
-    }
+const CommentList = memo(function CommentList({ items }: CommentListProps): ReactElement {
+  if (items.length === 0) {
+    return <p className="text-xs text-gray-500 italic">No comments yet.</p>
   }
+  return (
+    <ul className="flex flex-col gap-3 list-none p-0">
+      {items.map((c) => (
+        <li key={c.id} className="border-l-2 border-gray-700 pl-3 flex flex-col gap-1">
+          <div className="flex items-baseline gap-2 flex-wrap text-xs">
+            <span className="font-mono text-gray-400" title={c.author}>
+              {truncateAddress(c.author)}
+            </span>
+            <span className="text-gray-500">{formatTimestamp(c.postedAt)}</span>
+          </div>
+          <p className="text-sm text-gray-300">{c.body}</p>
+        </li>
+      ))}
+    </ul>
+  )
+})
 
-  const fieldClass =
-    'w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder:text-gray-600 focus:outline-none focus:ring-1 focus:ring-indigo-500'
+interface DisputeCardProps {
+  dispute: PriceDispute
+  now: number
+}
+
+const DisputeCard = memo(function DisputeCard({ dispute, now }: DisputeCardProps): ReactElement {
+  const [expanded, setExpanded] = useState(false)
+  const resolved = isDisputeResolved(dispute)
+  const breached = isDeadlineBreached(dispute, now)
+  const titleId = `dispute-${dispute.id}-title`
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="bg-gray-900 border border-gray-700 rounded-2xl p-5 flex flex-col gap-4"
-      aria-label="Submit a price dispute"
-      noValidate
+    <article
+      aria-labelledby={titleId}
+      className="bg-gray-900 border border-gray-800 rounded-2xl p-5 flex flex-col gap-4"
     >
-      <h3 className="text-sm font-semibold text-gray-100">Submit a dispute</h3>
-
-      <div className="grid sm:grid-cols-2 gap-3">
-        <div className="flex flex-col gap-1">
-          <label htmlFor="dispute-pair" className="text-xs text-gray-400">
-            Asset pair <span aria-hidden="true">*</span>
-          </label>
-          <input
-            id="dispute-pair"
-            type="text"
-            value={assetPair}
-            onChange={(e) => setAssetPair(e.target.value)}
-            placeholder="e.g. BTC/USD"
-            className={fieldClass}
-            required
-          />
+      {/* Header */}
+      <header className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <h3 id={titleId} className="text-base font-semibold text-gray-100">
+            {dispute.assetPair}{' '}
+            <span className="text-gray-400 font-normal">— {dispute.contestedPrice}</span>
+          </h3>
+          <span
+            className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-semibold border whitespace-nowrap ${DISPUTE_STATUS_STYLES[dispute.status]}`}
+          >
+            {DISPUTE_STATUS_LABELS[dispute.status]}
+          </span>
         </div>
-        <div className="flex flex-col gap-1">
-          <label htmlFor="dispute-price" className="text-xs text-gray-400">
-            Disputed price <span aria-hidden="true">*</span>
-          </label>
-          <input
-            id="dispute-price"
-            type="number"
-            step="any"
-            value={disputedPrice}
-            onChange={(e) => setDisputedPrice(e.target.value)}
-            placeholder="e.g. 42000.5"
-            className={fieldClass}
-            required
-          />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label htmlFor="dispute-timestamp" className="text-xs text-gray-400">
-            Price timestamp (Unix ms) <span aria-hidden="true">*</span>
-          </label>
-          <input
-            id="dispute-timestamp"
-            type="number"
-            value={priceTimestamp}
-            onChange={(e) => setPriceTimestamp(e.target.value)}
-            placeholder="e.g. 1700000000000"
-            className={fieldClass}
-            required
-          />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label htmlFor="dispute-sources" className="text-xs text-gray-400">
-            Flagged sources (comma-separated)
-          </label>
-          <input
-            id="dispute-sources"
-            type="text"
-            value={flaggedSources}
-            onChange={(e) => setFlaggedSources(e.target.value)}
-            placeholder="e.g. chainlink, band"
-            className={fieldClass}
-          />
-        </div>
-      </div>
 
-      <div className="flex flex-col gap-1">
-        <label htmlFor="dispute-reason" className="text-xs text-gray-400">
-          Reason <span aria-hidden="true">*</span>
-        </label>
-        <textarea
-          id="dispute-reason"
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          rows={3}
-          placeholder="Describe the discrepancy observed and why the price is contested."
-          className={`${fieldClass} resize-y`}
-          required
-        />
-      </div>
-
-      <div className="flex flex-col gap-1">
-        <label htmlFor="dispute-evidence" className="text-xs text-gray-400">
-          Evidence URL (optional — https:// only)
-        </label>
-        <input
-          id="dispute-evidence"
-          type="url"
-          value={evidenceUrl}
-          onChange={(e) => setEvidenceUrl(e.target.value)}
-          placeholder="https://…"
-          className={fieldClass}
-        />
-      </div>
-
-      {submitError && (
-        <p role="alert" className="text-xs text-red-400">
-          {submitError}
-        </p>
-      )}
-
-      <button
-        type="submit"
-        disabled={submitting}
-        className="self-start min-h-[44px] px-5 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg transition-colors"
-      >
-        {submitting ? 'Submitting…' : 'Submit dispute'}
-      </button>
-    </form>
-  )
-}
-
-// ── Main component ────────────────────────────────────────────────────────────
-
-export function DisputePanel(): ReactElement {
-  const { data, loading, error, refetch } = useSwr(
-    'governance/disputes',
-    (signal) => fetchDisputes(signal),
-    { refreshInterval: 60_000, staleTime: 30_000 },
-  )
-
-  const [showForm, setShowForm] = useState(false)
-
-  function handleSubmitted() {
-    setShowForm(false)
-    refetch()
-  }
-
-  const ordered = data ? orderDisputes(data) : null
-  const openCount = data ? data.filter(isDisputeOpen).length : 0
-
-  return (
-    <section aria-labelledby="disputes-heading" className="flex flex-col gap-4">
-      <div className="flex items-baseline justify-between gap-4 flex-wrap">
-        <h2 id="disputes-heading" className="text-lg font-semibold text-gray-100">
-          Price disputes
-        </h2>
-        <div className="flex items-center gap-3">
-          {!loading && error === null && data && (
-            <span className="text-xs text-gray-500">
-              {openCount > 0 ? `${openCount} open` : 'No open disputes'}
+        <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400">
+          <span className="font-mono text-gray-500">{dispute.id}</span>
+          <span>Opened {formatTimestamp(dispute.openedAt)}</span>
+          {dispute.resolutionDeadline !== null && (
+            <span className={breached ? 'text-yellow-400' : undefined}>
+              {breached
+                ? `Deadline breached ${formatTimestamp(dispute.resolutionDeadline)}`
+                : `Deadline ${formatTimestamp(dispute.resolutionDeadline)}`}
             </span>
           )}
-          <button
-            type="button"
-            onClick={() => setShowForm((s) => !s)}
-            aria-expanded={showForm}
-            className="min-h-[36px] px-3 py-1.5 text-xs font-medium bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg transition-colors border border-gray-700"
-          >
-            {showForm ? 'Cancel' : 'Raise a dispute'}
-          </button>
         </div>
-      </div>
 
-      <p className="text-xs text-gray-500">
-        When sources disagree and the aggregate price is contested, a formal dispute can be filed here with evidence
-        attached. All disputes leave a permanent on-platform record. Resolutions are written by reviewers — the client
-        never infers an outcome.
-      </p>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400">
+          <span>
+            Challenger:{' '}
+            <span className="font-mono text-gray-300" title={dispute.challenger}>
+              {truncateAddress(dispute.challenger)}
+            </span>
+          </span>
+          {dispute.challengerPrice !== null && (
+            <span>
+              Asserted price: <span className="font-mono text-gray-300">{dispute.challengerPrice}</span>
+            </span>
+          )}
+        </div>
+      </header>
 
-      {showForm && <SubmitDisputeForm onSubmitted={handleSubmitted} />}
+      {/* Rationale */}
+      <p className="text-sm text-gray-300 leading-relaxed">{dispute.rationale}</p>
 
-      {loading && !data && (
-        <p className="text-sm text-gray-500 py-6 text-center" role="status">
-          Loading disputes…
+      {/* Implied sources */}
+      {dispute.impliedSources.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          <span className="text-gray-500">Implicates:</span>
+          {dispute.impliedSources.map((s) => (
+            <span
+              key={s}
+              className="inline-flex items-center px-2 py-0.5 rounded-full font-medium bg-yellow-500/10 text-yellow-300 border border-yellow-500/30"
+            >
+              {s}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Deadline breached caveat */}
+      {breached && (
+        <p
+          role="note"
+          className="text-xs text-yellow-400 bg-yellow-500/10 border border-yellow-500/30 rounded-lg px-3 py-2"
+        >
+          The resolution deadline has passed but this dispute has not yet been resolved. The status shown is as last
+          reported — treat it as provisional.
         </p>
       )}
 
-      {!loading && error !== null && (
-        <div role="alert" className="bg-red-500/10 border border-red-500/30 rounded-2xl p-5 flex flex-col items-start gap-3">
-          <p className="text-sm text-red-300">Could not load price disputes.</p>
-          <button
-            type="button"
-            onClick={refetch}
-            className="min-h-[44px] px-4 py-2 text-sm font-medium bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg transition-colors"
-          >
-            Retry
-          </button>
+      {/* Resolution note */}
+      {resolved && dispute.resolutionNote !== null && (
+        <div className="bg-gray-800 rounded-xl p-3 flex flex-col gap-1">
+          <span className="text-xs font-medium text-gray-400">Resolution note</span>
+          <p className="text-sm text-gray-200">{dispute.resolutionNote}</p>
         </div>
       )}
 
-      {!loading && error === null && (!ordered || ordered.length === 0) && (
-        <p className="text-sm text-gray-500 py-6 text-center">No disputes on record.</p>
-      )}
+      {/* Expandable evidence + comments */}
+      <button
+        type="button"
+        aria-expanded={expanded}
+        className="text-xs text-cyan-400 hover:text-cyan-300 transition-colors underline-offset-2 hover:underline self-start"
+        onClick={() => setExpanded((v) => !v)}
+      >
+        {expanded ? 'Hide details' : `Show details — ${evidenceCountLabel(dispute)}, ${dispute.comments.length} comment${dispute.comments.length === 1 ? '' : 's'}`}
+      </button>
 
-      {ordered && ordered.length > 0 && (
-        <ul className="flex flex-col gap-3 list-none p-0">
-          {ordered.map((dispute) => (
-            <DisputeCard key={dispute.id} dispute={dispute} />
+      {expanded && (
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Evidence</h4>
+            <EvidenceList items={dispute.evidence} />
+          </div>
+          <div className="flex flex-col gap-2">
+            <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Comments</h4>
+            <CommentList items={dispute.comments} />
+          </div>
+        </div>
+      )}
+    </article>
+  )
+})
+
+export interface DisputePanelProps {
+  disputes: readonly PriceDispute[]
+  /** Injected clock for deterministic rendering in tests. */
+  now?: number
+}
+
+export const DisputePanel = memo(function DisputePanel({
+  disputes,
+  now = Date.now(),
+}: DisputePanelProps): ReactElement {
+  const ordered = orderDisputes(disputes)
+  const nOpen = openDisputeCount(disputes)
+
+  return (
+    <section aria-labelledby="disputes-heading" className="flex flex-col gap-5">
+      <div className="flex items-baseline justify-between gap-4">
+        <div className="flex flex-col gap-2">
+          <h2 id="disputes-heading" className="text-lg font-semibold text-gray-100">
+            Price disputes
+          </h2>
+          <p className="text-xs text-gray-400">
+            Formal challenges to contested prices — with attached evidence, comments, and resolution notes. This is the
+            on-platform record.
+          </p>
+        </div>
+        {disputes.length > 0 && (
+          <span className="text-xs text-gray-500 shrink-0">
+            {nOpen > 0 ? (
+              <span className="text-yellow-400 font-medium">{nOpen} open</span>
+            ) : (
+              'No open disputes'
+            )}
+            {' '}/ {disputes.length} total
+          </span>
+        )}
+      </div>
+
+      {ordered.length === 0 ? (
+        <p className="text-sm text-gray-500 text-center py-8">No disputes have been recorded.</p>
+      ) : (
+        <ul className="flex flex-col gap-4 list-none p-0">
+          {ordered.map((d) => (
+            <li key={d.id}>
+              <DisputeCard dispute={d} now={now} />
+            </li>
           ))}
         </ul>
       )}
     </section>
   )
-}
+})

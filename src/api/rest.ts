@@ -2,10 +2,9 @@ import { config } from '../config'
 import { showApiErrorToast } from '../context/ToastContext'
 import type {
   GovernanceProposal,
-  ParameterEntry,
-  ParameterChangeLogEntry,
-  SourceReputation,
-  TreasuryEntry,
+  ParameterRecord,
+  SourceReputationScore,
+  SourceIncentiveSummary,
   PriceDispute,
   PriceData,
   PriceHistoryResponse,
@@ -22,10 +21,9 @@ import {
   OnChainPriceRecordSchema,
   PriceProofSchema,
   GovernanceProposalSchema,
-  ParameterEntrySchema,
-  ParameterChangeLogEntrySchema,
-  SourceReputationSchema,
-  TreasuryEntrySchema,
+  ParameterRecordSchema,
+  SourceReputationScoreSchema,
+  SourceIncentiveSummarySchema,
   PriceDisputeSchema,
 } from './schemas'
 import { validate } from './validate'
@@ -574,178 +572,124 @@ export async function fetchOnChainPrice(
 }
 
 // ---------------------------------------------------------------------------
-// #698 — Transparent parameter registry
+// #698 — Parameter registry
 // ---------------------------------------------------------------------------
 
 /**
- * Fetches the full parameter registry (`GET /api/governance/parameters`).
- * Entries that fail schema validation are dropped (fail-closed) so a tampered
- * or malformed parameter never reaches the UI.
+ * Fetches the full parameter registry from the governance API.
+ *
+ * Each entry is validated individually; malformed entries are dropped with a
+ * warning so one bad record cannot blank the whole registry.
  */
-export async function fetchParameterRegistry(signal?: AbortSignal): Promise<ParameterEntry[]> {
+export async function fetchParameterRegistry(signal?: AbortSignal): Promise<ParameterRecord[]> {
   const raw = await request<unknown>('/api/governance/parameters', undefined, signal)
 
   if (!Array.isArray(raw)) {
-    console.warn('[governance/parameters] expected an array; received', typeof raw)
+    console.warn('[governance] fetchParameterRegistry: expected an array; received', typeof raw)
     return []
   }
 
-  const entries: ParameterEntry[] = []
+  const records: ParameterRecord[] = []
   for (const item of raw) {
-    const parsed = ParameterEntrySchema.safeParse(item)
+    const parsed = ParameterRecordSchema.safeParse(item)
     if (parsed.success) {
-      entries.push(parsed.data)
+      records.push(parsed.data)
     } else {
-      const msg = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
-      console.warn(`[governance/parameters] dropping malformed entry — ${msg}`)
+      const message = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
+      console.warn(`[governance] dropping malformed parameter record — ${message}`)
     }
   }
-  return entries
-}
-
-/**
- * Fetches the change log for a single parameter key
- * (`GET /api/governance/parameters/:key/history`).
- * Invalid entries are dropped so partial history does not crash the view.
- */
-export async function fetchParameterHistory(key: string, signal?: AbortSignal): Promise<ParameterChangeLogEntry[]> {
-  const raw = await request<unknown>(
-    `/api/governance/parameters/${encodeURIComponent(key)}/history`,
-    undefined,
-    signal,
-  )
-
-  if (!Array.isArray(raw)) {
-    console.warn('[governance/parameters/history] expected an array; received', typeof raw)
-    return []
-  }
-
-  const entries: ParameterChangeLogEntry[] = []
-  for (const item of raw) {
-    const parsed = ParameterChangeLogEntrySchema.safeParse(item)
-    if (parsed.success) {
-      entries.push(parsed.data)
-    } else {
-      const msg = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
-      console.warn(`[governance/parameters/history] dropping malformed entry — ${msg}`)
-    }
-  }
-  return entries
+  return records
 }
 
 // ---------------------------------------------------------------------------
-// #697 — Reputation decay & sybil resistance
+// #697 — Reputation scores
 // ---------------------------------------------------------------------------
 
 /**
- * Fetches reputation metrics for all oracle sources
- * (`GET /api/governance/reputation`).
- * Entries that fail schema validation are dropped.
+ * Fetches current reputation scores (with decay metadata) for all sources.
+ *
+ * Entries that fail validation are dropped individually so one bad score
+ * cannot blank the reputation panel.
  */
-export async function fetchSourceReputations(signal?: AbortSignal): Promise<SourceReputation[]> {
+export async function fetchReputationScores(signal?: AbortSignal): Promise<SourceReputationScore[]> {
   const raw = await request<unknown>('/api/governance/reputation', undefined, signal)
 
   if (!Array.isArray(raw)) {
-    console.warn('[governance/reputation] expected an array; received', typeof raw)
+    console.warn('[governance] fetchReputationScores: expected an array; received', typeof raw)
     return []
   }
 
-  const entries: SourceReputation[] = []
+  const scores: SourceReputationScore[] = []
   for (const item of raw) {
-    const parsed = SourceReputationSchema.safeParse(item)
+    const parsed = SourceReputationScoreSchema.safeParse(item)
     if (parsed.success) {
-      entries.push(parsed.data)
+      scores.push(parsed.data)
     } else {
-      const msg = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
-      console.warn(`[governance/reputation] dropping malformed entry — ${msg}`)
+      const message = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
+      console.warn(`[governance] dropping malformed reputation score — ${message}`)
     }
   }
-  return entries
+  return scores
 }
 
 // ---------------------------------------------------------------------------
-// #696 — Treasury & incentive accounting
+// #696 — Incentive summaries
 // ---------------------------------------------------------------------------
 
 /**
- * Fetches treasury accounting for all source operators
- * (`GET /api/governance/treasury`).
- * Entries that fail schema validation are dropped.
+ * Fetches incentive accounting summaries for all source operators.
+ *
+ * Entries that fail validation are dropped individually.
  */
-export async function fetchTreasury(signal?: AbortSignal): Promise<TreasuryEntry[]> {
-  const raw = await request<unknown>('/api/governance/treasury', undefined, signal)
+export async function fetchIncentiveSummaries(signal?: AbortSignal): Promise<SourceIncentiveSummary[]> {
+  const raw = await request<unknown>('/api/governance/incentives', undefined, signal)
 
   if (!Array.isArray(raw)) {
-    console.warn('[governance/treasury] expected an array; received', typeof raw)
+    console.warn('[governance] fetchIncentiveSummaries: expected an array; received', typeof raw)
     return []
   }
 
-  const entries: TreasuryEntry[] = []
+  const summaries: SourceIncentiveSummary[] = []
   for (const item of raw) {
-    const parsed = TreasuryEntrySchema.safeParse(item)
+    const parsed = SourceIncentiveSummarySchema.safeParse(item)
     if (parsed.success) {
-      entries.push(parsed.data)
+      summaries.push(parsed.data)
     } else {
-      const msg = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
-      console.warn(`[governance/treasury] dropping malformed entry — ${msg}`)
+      const message = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
+      console.warn(`[governance] dropping malformed incentive summary — ${message}`)
     }
   }
-  return entries
+  return summaries
 }
 
 // ---------------------------------------------------------------------------
-// #695 — Dispute & challenge process
+// #695 — Price disputes
 // ---------------------------------------------------------------------------
 
 /**
- * Fetches all price disputes (`GET /api/governance/disputes`).
- * Entries that fail schema validation are dropped.
+ * Fetches the formal price dispute register from the governance API.
+ *
+ * Disputes that fail validation are dropped individually so one malformed
+ * entry cannot wipe the dispute record.
  */
-export async function fetchDisputes(signal?: AbortSignal): Promise<PriceDispute[]> {
+export async function fetchPriceDisputes(signal?: AbortSignal): Promise<PriceDispute[]> {
   const raw = await request<unknown>('/api/governance/disputes', undefined, signal)
 
   if (!Array.isArray(raw)) {
-    console.warn('[governance/disputes] expected an array; received', typeof raw)
+    console.warn('[governance] fetchPriceDisputes: expected an array; received', typeof raw)
     return []
   }
 
-  const entries: PriceDispute[] = []
+  const disputes: PriceDispute[] = []
   for (const item of raw) {
     const parsed = PriceDisputeSchema.safeParse(item)
     if (parsed.success) {
-      entries.push(parsed.data)
+      disputes.push(parsed.data)
     } else {
-      const msg = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
-      console.warn(`[governance/disputes] dropping malformed dispute — ${msg}`)
+      const message = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
+      console.warn(`[governance] dropping malformed dispute — ${message}`)
     }
   }
-  return entries
-}
-
-/**
- * Submits a new price dispute (`POST /api/governance/disputes`).
- * Returns the created dispute record on success.
- */
-export async function submitDispute(
-  payload: {
-    assetPair: string
-    disputedPrice: number
-    priceTimestamp: number
-    reason: string
-    evidenceUrl: string | null
-    flaggedSources: string[]
-  },
-  signal?: AbortSignal,
-): Promise<PriceDispute> {
-  const raw = await request<unknown>(
-    '/api/governance/disputes',
-    { method: 'POST', body: JSON.stringify(payload) },
-    signal,
-  )
-  const parsed = PriceDisputeSchema.safeParse(raw)
-  if (!parsed.success) {
-    const msg = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
-    throw new Error(`[governance/disputes] submit response invalid — ${msg}`)
-  }
-  return parsed.data
+  return disputes
 }

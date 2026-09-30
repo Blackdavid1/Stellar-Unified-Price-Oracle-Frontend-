@@ -377,3 +377,95 @@ export type AlertHistoryEntryFromSchema = z.infer<typeof AlertHistoryEntrySchema
 export type WsMessageFromSchema = z.infer<typeof WsMessageSchema>
 export type PriceProofFromSchema = z.infer<typeof PriceProofSchema>
 export type GovernanceProposalFromSchema = z.infer<typeof GovernanceProposalSchema>
+
+// ── #698 Parameter registry schemas ─────────────────────────────────────────
+
+export const ParameterChangeEntrySchema = z.object({
+  version: z.number().int().min(1),
+  changedAt: z.number().int().min(0),
+  changedBy: z.string().min(1),
+  previousValue: z.string(),
+  newValue: z.string(),
+  reason: z.string(),
+})
+
+export const ParameterRecordSchema = z.object({
+  key: z.string().min(1),
+  label: z.string().min(1),
+  category: z.string().min(1),
+  currentValue: z.string(),
+  owner: z.string().min(1),
+  lastChangedAt: z.number().int().min(0).nullable(),
+  history: z.array(ParameterChangeEntrySchema),
+})
+
+// ── #697 Reputation decay and sybil resistance schemas ──────────────────────
+
+export const SourceReputationScoreSchema = z.object({
+  sourceId: z.string().min(1),
+  score: z.number().min(0).max(1).nullable(),
+  rawScore: z.number().min(0).nullable(),
+  decayHalfLifeMs: z.number().int().positive(),
+  lastScoredAt: z.number().int().min(0).nullable(),
+  lastDecayAt: z.number().int().min(0).nullable(),
+  sybilRisk: z.enum(['low', 'medium', 'high', 'unknown']),
+  sybilAttenuationFactor: z.number().min(0).max(1),
+  sybilClusterId: z.string().nullable(),
+})
+
+// ── #696 Incentive accounting schemas ───────────────────────────────────────
+
+export const IncentiveLedgerEntrySchema = z.object({
+  seq: z.number().int().min(1),
+  recordedAt: z.number().int().min(0),
+  rewardType: z.enum(['accuracy', 'uptime', 'latency', 'staking', 'slash']),
+  amount: z.string().min(1),
+  runningBalance: z.string().min(1),
+  note: z.string().nullable(),
+})
+
+export const SourceIncentiveSummarySchema = z.object({
+  sourceId: z.string().min(1),
+  period: z.enum(['epoch', 'daily', 'weekly', 'monthly']),
+  periodStart: z.number().int().min(0),
+  periodEnd: z.number().int().min(0),
+  totalEarned: z.string().min(1),
+  totalSlashed: z.string().min(1),
+  netChange: z.string().min(1),
+  cumulativeBalance: z.string().nullable(),
+  ledger: z.array(IncentiveLedgerEntrySchema),
+})
+
+// ── #695 Dispute process schemas ─────────────────────────────────────────────
+
+export const DisputeEvidenceSchema = z.object({
+  id: z.string().min(1),
+  submittedBy: z.string().min(1),
+  submittedAt: z.number().int().min(0),
+  description: z.string(),
+  uri: z.string().nullable(),
+})
+
+export const DisputeCommentSchema = z.object({
+  id: z.string().min(1),
+  author: z.string().min(1),
+  postedAt: z.number().int().min(0),
+  body: z.string(),
+})
+
+export const PriceDisputeSchema = z.object({
+  id: z.string().min(1),
+  assetPair: z.string().min(1),
+  contestedAt: z.number().int().min(0),
+  contestedPrice: z.string().min(1),
+  challengerPrice: z.string().nullable(),
+  challenger: z.string().min(1),
+  status: z.enum(['open', 'under_review', 'resolved_upheld', 'resolved_overturned', 'withdrawn']),
+  openedAt: z.number().int().min(0),
+  resolutionDeadline: z.number().int().min(0).nullable(),
+  rationale: z.string(),
+  impliedSources: z.array(z.string()),
+  evidence: z.array(DisputeEvidenceSchema),
+  comments: z.array(DisputeCommentSchema),
+  resolutionNote: z.string().nullable(),
+})
