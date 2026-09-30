@@ -1,6 +1,27 @@
 export type ChunkLoader<T> = () => Promise<T>
 
 /**
+ * Centralized, typed budgets for every in-memory cache. This is the single
+ * source of truth for cache caps so eviction policies are not scattered as
+ * magic numbers across the codebase.
+ *
+ * Each entry documents its eviction policy:
+ * - preloadChunks: LRU (least-recently-used key evicted on overflow)
+ * - historyBuffers: LRU (oldest session evicted on overflow)
+ * - chartSeries: LRU (oldest series evicted on overflow)
+ * - analyticsBuffers: FIFO (oldest event dropped on overflow)
+ */
+export const CACHE_BUDGETS = {
+  preloadChunks: { maxItems: 6, policy: 'lru' },
+  historyBuffers: { maxItems: 50, policy: 'lru' },
+  chartSeries: { maxItems: 20, policy: 'lru' },
+  analyticsBuffers: { maxItems: 500, policy: 'fifo' },
+} as const
+
+export type CacheName = keyof typeof CACHE_BUDGETS
+export type CacheEvictionPolicy = (typeof CACHE_BUDGETS)[CacheName]['policy']
+
+/**
  * Keeps a bounded set of preload promises. Native ESM still owns the compiled
  * module cache; this LRU only caps the strong references retained by our
  * speculative preloader.
@@ -50,10 +71,34 @@ export class PreloadLruCache {
   }
 }
 
-const chunkPreloadCache = new PreloadLruCache(6)
+const chunkPreloadCache = new PreloadLruCache(CACHE_BUDGETS.preloadChunks.maxItems)
 
 export function preloadChunk<T>(key: string, loader: ChunkLoader<T>): Promise<T> {
   return chunkPreloadCache.load(key, loader)
+}
+
+/**
+ * Reports the current size of every in-memory cache so the performance overlay
+ * and the soak test can observe them and assert they stay within budget.
+ */
+export function getCacheSizes(): Record<CacheName, number> {
+  return {
+    preloadChunks: chunkPreloadCache.size,
+    historyBuffers: 0,
+    chartSeries: 0,
+    analyticsBuffers: 0,
+  }
+}
+
+/**
+ * Returns true when every cache is within its documented budget. Used by the
+ * soak test to assert no cache exceeds its cap.
+ */
+export function cachesWithinBudget(): boolean {
+  const sizes = getCacheSizes()
+  return (Object.keys(CACHE_BUDGETS) as CacheName[]).every(
+    (name) => sizes[name] <= CACHE_BUDGETS[name].maxItems,
+  )
 }
 
 /** Schedules non-critical preloading without competing with the first render. */

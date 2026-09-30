@@ -59,6 +59,13 @@ jobs:
 
       - run: npm run test:run
 
+      # Render profiling gate (#677): renders key views with a fixed, seeded
+      # dataset and asserts per-component render counts against the checked-in
+      # budgets in perf/render-budgets.json. A planted missing-`memo` or an
+      # unstable prop regresses the counts and fails this step.
+      - name: Render profiling budgets
+        run: npm run perf:render
+
       # Upload hidden source maps to Sentry for production error tracking,
       # then strip them from the deployment artifact so they are never
       # served to end-users or uploaded to the CDN.
