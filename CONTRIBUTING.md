@@ -31,6 +31,23 @@ If you experience or witness a violation, report it by opening a private discuss
 or emailing the maintainers listed in `package.json`. All reports are treated
 confidentially. Maintainers are obligated to respond within 72 hours.
 
+### Moderation workflow
+
+Community surfaces (governance proposals, the reliability leaderboard, feedback and
+translation contributions) carry a **Report** action. Each report records a category
+and evidence — never the reporter's identity — and moves through:
+
+1. **Triage** — a moderator reviews the report against this Code of Conduct.
+2. **Decide** — a decision (no violation, warning, content removed, temporary or
+   permanent ban) is recorded with a rationale.
+3. **Action** — the decision is carried out.
+4. **Notify** — the reporter and affected party are informed. Evidence marked
+   confidential is visible to moderators only.
+
+Anonymized counts by category, stage, and decision are published at `/moderation`, and
+monthly source uptime, accuracy, incidents, and governance participation at
+`/transparency`.
+
 ---
 
 ## How to Report Issues
@@ -70,11 +87,11 @@ confidentially. Maintainers are obligated to respond within 72 hours.
 
 ### Prerequisites
 
-| Tool | Minimum version |
-|------|----------------|
+| Tool    | Minimum version |
+| ------- | --------------- |
 | Node.js | 22 (matches CI) |
-| npm | 10 |
-| Git | 2.40 |
+| npm     | 10              |
+| Git     | 2.40            |
 
 ### First-time setup
 
@@ -167,6 +184,7 @@ chore(deps): pin @tanstack/react-query to 5.62.7
 ```
 
 Rules:
+
 - Subject line ≤ 72 characters, imperative mood ("add", not "added" / "adds").
 - Body wraps at 80 characters.
 - Reference issues with `Closes #123` or `Refs #456` in the footer.
@@ -285,12 +303,12 @@ documentation or styling with no logic.
 
 ### Coverage expectations
 
-| Area | Expectation |
-|------|------------|
-| New utility functions (`src/utils/`) | 100 % branch coverage |
-| New hooks (`src/hooks/`) | Happy path + error path |
-| New components | Render test, key interactions, empty/error/loading states |
-| Bug fixes | Regression test that would have caught the bug |
+| Area                                 | Expectation                                               |
+| ------------------------------------ | --------------------------------------------------------- |
+| New utility functions (`src/utils/`) | 100 % branch coverage                                     |
+| New hooks (`src/hooks/`)             | Happy path + error path                                   |
+| New components                       | Render test, key interactions, empty/error/loading states |
+| Bug fixes                            | Regression test that would have caught the bug            |
 
 ### E2E tests (Playwright)
 
@@ -324,14 +342,14 @@ Review the diff in the PR to confirm the change is intentional.
 
 ## Documentation Requirements
 
-| Type of change | Documentation required |
-|---------------|----------------------|
-| New component | JSDoc file header with `@example`, props table, edge cases, and accessibility notes |
-| New hook | JSDoc comment on the exported function with `@param`, `@returns`, and at least one `@example` |
-| New utility function | JSDoc comment, parameter descriptions, and error conditions |
-| New localStorage key | Add to `STORAGE_KEYS`, update `docs/storage-security-audit.md` |
-| Architecture decision | Create `docs/adr/ADR-NNN-short-title.md` using the template in that directory |
-| Breaking change | Note in the PR description and update `README.md` if it affects Quick Start |
+| Type of change        | Documentation required                                                                        |
+| --------------------- | --------------------------------------------------------------------------------------------- |
+| New component         | JSDoc file header with `@example`, props table, edge cases, and accessibility notes           |
+| New hook              | JSDoc comment on the exported function with `@param`, `@returns`, and at least one `@example` |
+| New utility function  | JSDoc comment, parameter descriptions, and error conditions                                   |
+| New localStorage key  | Add to `STORAGE_KEYS`, update `docs/storage-security-audit.md`                                |
+| Architecture decision | Create `docs/adr/ADR-NNN-short-title.md` using the template in that directory                 |
+| Breaking change       | Note in the PR description and update `README.md` if it affects Quick Start                   |
 
 The component reference lives in `docs/components.md`. Update the props table and
 hierarchy diagram when you add or rename a component.
