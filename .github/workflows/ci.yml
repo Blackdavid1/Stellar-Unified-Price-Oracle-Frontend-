@@ -267,8 +267,8 @@ jobs:
             };
             fs.appendFileSync('.github/bundle-size-history.jsonl', JSON.stringify(entry) + '\n');
           "
-          git config user.name 'github-actions[bot]'
-          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .github/bundle-size-history.jsonl
           git diff --cached --quiet || git commit -m 'chore(bundle-size): record size history [skip ci]'
           for
